@@ -1,4 +1,3 @@
-// client/src/socket.js
 import { io } from "socket.io-client";
 
 const URL =
@@ -9,7 +8,6 @@ const URL =
 console.log("🔌 Connecting to:", URL);
 
 const socket = io(URL, {
-  // Let Socket.IO use HTTP long-polling (works even if websocket upgrade fails)
   transports: ["polling"],
   withCredentials: true,
 });
