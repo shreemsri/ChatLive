@@ -9,15 +9,20 @@ app.use(cors());
 
 const server = http.createServer(app);
 
+// IMPORTANT: allow Vercel + localhost
 const io = new Server(server, {
   cors: {
-    origin: "*",
+    origin: [
+      "http://localhost:3000",
+      "https://chat-live-gold.vercel.app"
+    ],
     methods: ["GET", "POST"],
+    credentials: true,
   },
 });
 
-// In-memory rooms:
-// rooms = { roomName: { users: { socketId: username }, messages: [{ username, text, time }] } }
+// In-memory rooms
+// rooms = { roomName: { users: { socketId: username }, messages: [] } }
 const rooms = {};
 
 app.get("/", (req, res) => {
@@ -27,18 +32,17 @@ app.get("/", (req, res) => {
 io.on("connection", (socket) => {
   console.log("✅ Client connected:", socket.id);
 
-  // ===== Set username for this socket =====
+  // Set username from frontend
   socket.on("set_username", (username) => {
     socket.username = username;
     console.log("👤 Username set:", username, "for", socket.id);
   });
 
-  // ===== Join or create room =====
+  // Join or create room
   socket.on("join_room", (roomName, callback) => {
     if (!roomName) return;
     console.log("📥 join_room:", roomName, "from", socket.id);
 
-    // Create room if it doesn't exist
     if (!rooms[roomName]) {
       rooms[roomName] = { users: {}, messages: [] };
     }
@@ -54,7 +58,6 @@ io.on("connection", (socket) => {
       }
     }
 
-    // Join new room
     socket.join(roomName);
     rooms[roomName].users[socket.id] = socket.username || "Anonymous";
 
@@ -63,61 +66,47 @@ io.on("connection", (socket) => {
       users: Object.values(rooms[roomName].users),
     };
 
-    if (typeof callback === "function") {
-      callback(data);
-    }
+    if (typeof callback === "function") callback(data);
 
     io.to(roomName).emit("room_users", data.users);
-
-    // send updated room list to everyone
     io.emit("rooms_updated", Object.keys(rooms));
   });
 
-  // ===== Get list of rooms =====
+  // Get rooms list
   socket.on("get_rooms", (callback) => {
     const list = Object.keys(rooms);
-    if (typeof callback === "function") {
-      callback(list);
-    }
+    if (typeof callback === "function") callback(list);
   });
 
-  // ===== Handle chat messages =====
+  // Send message
   socket.on("send_message", ({ roomName, text }) => {
     if (!roomName || !text || !rooms[roomName]) return;
 
-    const msg = {
+    const message = {
       username: socket.username || "Anonymous",
       text,
       time: new Date().toLocaleTimeString(),
     };
 
-    rooms[roomName].messages.push(msg);
-    io.to(roomName).emit("receive_message", msg);
+    rooms[roomName].messages.push(message);
+    io.to(roomName).emit("receive_message", message);
   });
 
-  // ===== Delete room =====
+  // Delete room
   socket.on("delete_room", (roomName, callback) => {
-    console.log("🗑️ delete_room requested for:", roomName);
-
+    console.log("🗑️ delete_room:", roomName);
     if (!roomName || !rooms[roomName]) {
-      console.log("⚠️ Room not found:", roomName);
       if (typeof callback === "function") callback(false);
       return;
     }
 
     delete rooms[roomName];
-    const updated = Object.keys(rooms);
-    console.log("📂 Rooms after delete:", updated);
-
-    io.emit("rooms_updated", updated);
-
+    io.emit("rooms_updated", Object.keys(rooms));
     if (typeof callback === "function") callback(true);
   });
 
-  // ===== Clean up on disconnect =====
   socket.on("disconnect", () => {
     console.log("❌ Client disconnected:", socket.id);
-
     for (const [roomName, room] of Object.entries(rooms)) {
       if (room.users[socket.id]) {
         delete room.users[socket.id];
@@ -127,7 +116,12 @@ io.on("connection", (socket) => {
   });
 });
 
-const PORT = 5001; // IMPORTANT: must match client/src/socket.js
+// Optional: log connection errors
+io.engine.on("connection_error", (err) => {
+  console.log("⚠️ engine connection error:", err.code, err.message);
+});
+
+const PORT = process.env.PORT || 5001;
 server.listen(PORT, () => {
   console.log("🔥 Server running on port", PORT);
 });
