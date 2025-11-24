@@ -1,7 +1,7 @@
 // client/src/socket.js
 import { io } from "socket.io-client";
 
-// Use Render in production, localhost in development
+// Use Render in production, localhost in dev
 const URL =
   process.env.NODE_ENV === "production"
     ? "https://chatlive-1.onrender.com"
@@ -10,11 +10,10 @@ const URL =
 console.log("🔌 Connecting to:", URL);
 
 const socket = io(URL, {
-  // IMPORTANT: force HTTP long-polling only in production.
-  // This avoids WebSocket upgrade issues on free hosts like Render.
+  // Force HTTP long-polling only from browser
   transports: ["polling"],
-  upgrade: false,
-  withCredentials: false,
+  upgrade: false,          // <– do NOT try WebSocket
+  withCredentials: true,
 });
 
 socket.on("connect", () => {
