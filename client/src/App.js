@@ -26,13 +26,11 @@ function App() {
   const [messages, setMessages] = useState([]);
   const [users, setUsers] = useState([]);
   const [messageText, setMessageText] = useState("");
-
-  // ==== THEME STATE ====
   const [theme, setTheme] = useState(
     localStorage.getItem("theme") || "light"
   );
 
-  // ================= THEME EFFECT =================
+  // ==== THEME EFFECT ====
   useEffect(() => {
     if (theme === "dark") {
       document.body.classList.add("dark-mode");
@@ -46,26 +44,21 @@ function App() {
     setTheme((prev) => (prev === "light" ? "dark" : "light"));
   };
 
-  // ================= SOCKET LISTENERS =================
+  // ==== SOCKET LISTENERS ====
   useEffect(() => {
     socket.on("receive_message", (msg) => {
+      console.log("📩 receive_message:", msg);
       setMessages((prev) => [...prev, msg]);
     });
 
     socket.on("room_users", (usersList) => {
+      console.log("👥 room_users:", usersList);
       setUsers(usersList);
     });
 
     socket.on("rooms_updated", (roomList) => {
-      console.log("📌 rooms_updated:", roomList);
+      console.log("📂 rooms_updated:", roomList);
       setRooms(roomList);
-
-      // If current room was deleted, reset
-      if (currentRoom && !roomList.includes(currentRoom)) {
-        setCurrentRoom("");
-        setMessages([]);
-        setUsers([]);
-      }
     });
 
     return () => {
@@ -73,12 +66,12 @@ function App() {
       socket.off("room_users");
       socket.off("rooms_updated");
     };
-  }, [currentRoom]);
+  }, []);
 
-  // Fetch existing rooms from server
+  // Fetch existing rooms
   const fetchRooms = () => {
     socket.emit("get_rooms", (roomList) => {
-      console.log("📂 get_rooms ->", roomList);
+      console.log("📂 get_rooms callback:", roomList);
       setRooms(roomList);
     });
   };
@@ -87,7 +80,7 @@ function App() {
     fetchRooms();
   }, []);
 
-  // ================= AUTH HANDLERS =================
+  // ==== AUTH HANDLERS ====
   const handleRegister = async () => {
     try {
       if (!email || !password) {
@@ -160,7 +153,6 @@ function App() {
     } catch (e) {
       console.error("Signout error (ignored):", e);
     }
-
     setUsername("");
     setCurrentRoom("");
     setMessages([]);
@@ -168,14 +160,14 @@ function App() {
     localStorage.removeItem("username");
   };
 
-  // ================= ROOM / MESSAGE HANDLERS =================
+  // ==== ROOM / MESSAGE HANDLERS ====
   const joinRoom = (roomName) => {
     if (!roomName) return;
 
     console.log("➡️ joinRoom:", roomName);
 
     socket.emit("join_room", roomName, ({ messages, users }) => {
-      console.log("⬅️ join_room callback:", { messages, users });
+      console.log("✅ join_room callback:", { messages, users });
       setCurrentRoom(roomName);
       setMessages(messages);
       setUsers(users);
@@ -193,42 +185,19 @@ function App() {
     e.preventDefault();
     if (!messageText.trim() || !currentRoom) return;
 
-    socket.emit("send_message", {
+    const payload = {
       roomName: currentRoom,
       text: messageText.trim(),
-    });
+    };
+
+    console.log("📤 sending message:", payload);
+
+    socket.emit("send_message", payload);
 
     setMessageText("");
   };
 
-  const handleDeleteCurrentRoom = () => {
-    if (!currentRoom) return;
-
-    const confirmed = window.confirm(
-      `Are you sure you want to delete "${currentRoom}"?`
-    );
-    if (!confirmed) return;
-
-    console.log("➡️ Sending delete_room for:", currentRoom);
-
-    socket.emit("delete_room", currentRoom, (success) => {
-      console.log("⬅️ delete_room callback:", success);
-
-      if (!success) {
-        alert("Failed to delete room.");
-        return;
-      }
-
-      setRooms((prev) => prev.filter((r) => r !== currentRoom));
-      setCurrentRoom("");
-      setMessages([]);
-      setUsers([]);
-
-      fetchRooms();
-    });
-  };
-
-  // ================= LOGIN SCREEN =================
+  // ==== LOGIN SCREEN ====
   if (!username) {
     return (
       <div className="login-container">
@@ -265,27 +234,16 @@ function App() {
     );
   }
 
-  // ================= MAIN CHAT UI =================
+  // ==== MAIN CHAT UI ====
   return (
     <div className="app-container">
       {/* Sidebar */}
       <div className="sidebar">
         <div className="sidebar-header">
-          <h2>ChatLive</h2>
-
-          <div style={{ display: "flex", gap: "8px" }}>
-            <button
-              className="delete-room-btn"
-              onClick={handleDeleteCurrentRoom}
-              disabled={!currentRoom}
-            >
-              Delete Room
-            </button>
-
-            <button className="logout-btn" onClick={handleLogout}>
-              Logout
-            </button>
-          </div>
+          <h2>Rooms</h2>
+          <button className="logout-btn" onClick={handleLogout}>
+            Logout
+          </button>
         </div>
 
         <div className="room-create">

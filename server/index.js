@@ -1,22 +1,16 @@
 // server/index.js
 const express = require("express");
 const http = require("http");
-const cors = require("cors");
 const { Server } = require("socket.io");
+const cors = require("cors");
 
 const app = express();
+app.use(cors());
 
-// Allow your Vercel frontend + local dev
-app.use(
-  cors({
-    origin: [
-      "http://localhost:3000",
-      "https://chat-live-gold.vercel.app",
-    ],
-    methods: ["GET", "POST"],
-    credentials: true,
-  })
-);
+// Simple test route
+app.get("/", (req, res) => {
+  res.send("ChatLive backend is running ✅");
+});
 
 const server = http.createServer(app);
 
@@ -27,38 +21,32 @@ const io = new Server(server, {
       "https://chat-live-gold.vercel.app",
     ],
     methods: ["GET", "POST"],
-    credentials: true,
   },
-  transports: ["polling", "websocket"], // let server support both
-  pingTimeout: 60000,
 });
 
-// In-memory rooms: { roomName: { users: {socketId: username}, messages: [] } }
+// In-memory rooms
+// rooms = { roomName: { users: {socketId: username}, messages: [{username,text,time}] } }
 const rooms = {};
 
-app.get("/", (req, res) => {
-  res.send("Backend running 🚀");
-});
-
 io.on("connection", (socket) => {
-  console.log("✅ Client connected:", socket.id);
+  console.log("🔌 Client connected:", socket.id);
 
-  // Username from client
+  // Store username on the socket
   socket.on("set_username", (username) => {
     socket.username = username;
-    console.log("👤 set_username:", username);
+    console.log("👤 set_username:", username, "for", socket.id);
   });
 
-  // Join / create room
+  // Join or create a room
   socket.on("join_room", (roomName, callback) => {
     if (!roomName) return;
-    console.log("📥 join_room:", roomName, "from", socket.id);
+    console.log("➡️ join_room:", roomName, "from", socket.id);
 
     if (!rooms[roomName]) {
       rooms[roomName] = { users: {}, messages: [] };
     }
 
-    // Leave all other rooms except own id
+    // Leave previous rooms (except own socket id)
     for (const r of socket.rooms) {
       if (r !== socket.id) {
         socket.leave(r);
@@ -77,63 +65,90 @@ io.on("connection", (socket) => {
       users: Object.values(rooms[roomName].users),
     };
 
+    console.log("✅ join_room callback data:", data);
+
     if (typeof callback === "function") {
       callback(data);
     }
 
+    // Broadcast updated user list
     io.to(roomName).emit("room_users", data.users);
+
+    // Broadcast updated room list to all clients
     io.emit("rooms_updated", Object.keys(rooms));
   });
 
-  // List rooms
+  // Return list of rooms
   socket.on("get_rooms", (callback) => {
     const list = Object.keys(rooms);
+    console.log("📂 get_rooms from", socket.id, "=>", list);
     if (typeof callback === "function") {
       callback(list);
     }
   });
 
-  // Send message
+  // Handle chat messages
   socket.on("send_message", ({ roomName, text }) => {
-    if (!roomName || !rooms[roomName] || !text?.trim()) return;
+    console.log("💬 send_message received:", { roomName, text, from: socket.id });
+
+    if (!roomName || !rooms[roomName]) {
+      console.log("⚠️ send_message: invalid room", roomName);
+      return;
+    }
 
     const msg = {
       username: socket.username || "Anonymous",
-      text: text.trim(),
+      text,
       time: new Date().toLocaleTimeString(),
     };
 
     rooms[roomName].messages.push(msg);
+    console.log("📤 Broadcasting message to room:", roomName, msg);
+
     io.to(roomName).emit("receive_message", msg);
   });
 
-  // Delete room
+  // Delete a room (optional feature)
   socket.on("delete_room", (roomName, callback) => {
-    console.log("🗑 delete_room:", roomName);
-    if (!roomName || !rooms[roomName]) {
-      if (typeof callback === "function") callback(false);
+    console.log("🧨 delete_room requested:", roomName);
+
+    if (!rooms[roomName]) {
+      if (callback) callback(false);
       return;
     }
 
+    // Remove all users from that room
+    const socketIds = Object.keys(rooms[roomName].users);
+    socketIds.forEach((sid) => {
+      const s = io.sockets.sockets.get(sid);
+      if (s) {
+        s.leave(roomName);
+      }
+    });
+
     delete rooms[roomName];
-    io.emit("rooms_updated", Object.keys(rooms));
-    if (typeof callback === "function") callback(true);
+
+    // Notify all clients
+    const list = Object.keys(rooms);
+    io.emit("rooms_updated", list);
+
+    if (callback) callback(true);
   });
 
+  // Disconnect
   socket.on("disconnect", () => {
     console.log("❌ Client disconnected:", socket.id);
-    for (const [roomName, room] of Object.entries(rooms)) {
-      if (room.users[socket.id]) {
-        delete room.users[socket.id];
-        io.to(roomName).emit("room_users", Object.values(room.users));
+
+    for (const roomName of Object.keys(rooms)) {
+      if (rooms[roomName].users[socket.id]) {
+        delete rooms[roomName].users[socket.id];
+        io.to(roomName).emit(
+          "room_users",
+          Object.values(rooms[roomName].users)
+        );
       }
     }
   });
-});
-
-// Optional debug
-io.engine.on("connection_error", (err) => {
-  console.log("⚠️ engine connection error:", err.code, err.message);
 });
 
 const PORT = process.env.PORT || 5001;

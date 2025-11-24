@@ -1,9 +1,9 @@
 // client/src/socket.js
 import { io } from "socket.io-client";
 
-// 🔴 NO env variable, NO condition – just hard-coded Render URL
+// Hard-coded Render backend URL
 const socket = io("https://chatlive-1.onrender.com", {
-  transports: ["polling"],
+  transports: ["polling"],  // more reliable on Render free tier
   upgrade: false,
 });
 
