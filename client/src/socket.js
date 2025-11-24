@@ -2,7 +2,7 @@ import { io } from "socket.io-client";
 
 const URL =
   process.env.NODE_ENV === "production"
-    ? "https://chatlive-server.onrender.com"
+    ? "https://chatlive-1.onrender.com"
     : "http://localhost:5001";
 
 console.log("🔌 Connecting to:", URL);
