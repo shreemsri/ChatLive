@@ -26,10 +26,16 @@ const server = http.createServer(app);
 // Socket.io CORS
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins,
+    origin: [
+      "http://localhost:3000",
+      "https://chat-live-gold.vercel.app"
+    ],
     methods: ["GET", "POST"],
-    credentials: true,
-  },
+    credentials: true
+  }
+});
+io.engine.on("connection_error", (err) => {
+  console.log("🔥 Socket error:", err.req.headers.origin, err.code, err.message);
 });
 
 // Simple health route
