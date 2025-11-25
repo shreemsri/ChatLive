@@ -394,7 +394,7 @@ function App() {
           <div className="message-bubble">
             <div className="message-meta">
               <span className="message-user">
-                {isMe ? "You" : msg.username || "Anonymous"}
+                {isMe ? "You" : msg.username}
               </span>
               {displayTime && (
                 <span className="message-time">{displayTime}</span>
