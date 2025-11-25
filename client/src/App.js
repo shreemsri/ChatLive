@@ -256,60 +256,57 @@ function App() {
   };
 
   const handleDeleteRoom = (roomName) => {
-    if (!roomName) return;
+  if (!roomName) return;
 
-    // we either use stored password or ask for it
-    let pwd = roomPasswords[roomName];
-    if (!pwd) {
-      pwd = askForPassword(
-        roomName,
-        `Enter password again to delete room "${roomName}" for everyone:`
-      );
-      if (!pwd) return;
-    }
+  // Ask user if they're sure
+  const confirmDelete = window.confirm(
+    `Are you sure you want to delete "${roomName}" for everyone?`
+  );
+  if (!confirmDelete) return;
 
-    const confirmDelete = window.confirm(
-      `Are you sure you want to delete "${roomName}" for everyone?`
-    );
-    if (!confirmDelete) return;
+  // 🔐 ALWAYS ASK FOR PASSWORD (do not reuse stored one)
+  const pwdInput = window
+    .prompt(`Enter password to delete room "${roomName}":`)
+    ?.trim();
 
-    console.log("🗑 Sending delete_room for:", roomName);
+  if (!pwdInput) {
+    alert("Password is required to delete this room.");
+    return;
+  }
 
-    socket.emit(
-      "delete_room",
-      { roomName, password: pwd },
-      (res = {}) => {
-        if (!res.ok) {
-          alert(res.message || "Failed to delete room.");
-          // if wrong password, forget saved one
-          if (res.message && res.message.toLowerCase().includes("wrong")) {
-            setRoomPasswords((prev) => {
-              const copy = { ...prev };
-              delete copy[roomName];
-              return copy;
-            });
-          }
-          console.log("❌ Room deletion failed:", res);
-          return;
-        }
+  console.log("🗑 Sending delete_room for:", roomName);
 
-        console.log("✅ Room deleted:", roomName);
-        setRooms((prev) => prev.filter((r) => r !== roomName));
-
-        setRoomPasswords((prev) => {
-          const copy = { ...prev };
-          delete copy[roomName];
-          return copy;
-        });
-
-        if (currentRoom === roomName) {
-          setCurrentRoom("");
-          setMessages([]);
-          setUsers([]);
-        }
+  socket.emit(
+    "delete_room",
+    { roomName, password: pwdInput }, // ✅ send as object, matches server
+    (res = {}) => {
+      if (!res.ok) {
+        alert(res.message || "Failed to delete room.");
+        console.log("❌ Room deletion failed:", res);
+        return;
       }
-    );
-  };
+
+      console.log("✅ Room deleted:", roomName);
+
+      // Remove from sidebar list
+      setRooms((prev) => prev.filter((r) => r !== roomName));
+
+      // Clear current room if we were inside it
+      if (currentRoom === roomName) {
+        setCurrentRoom("");
+        setMessages([]);
+        setUsers([]);
+      }
+
+      // Optionally forget stored password for that room
+      setRoomPasswords((prev) => {
+        const copy = { ...prev };
+        delete copy[roomName];
+        return copy;
+      });
+    }
+  );
+};
 
   const handleSendMessage = (e) => {
     e.preventDefault();
