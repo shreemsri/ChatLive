@@ -11,7 +11,7 @@ body {
   margin: 0;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Segoe UI", sans-serif;
-  background:  #d6e0ff;
+  background: radial-gradient(circle at top left, #d6e0ff 0, #10101c 55%);
   min-height: 100vh;
 }
 
