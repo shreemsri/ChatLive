@@ -86,6 +86,17 @@ function App() {
     socket.emit("get_rooms", (roomList) => setRooms(roomList));
   }, []);
 
+  // ---------- TIME FORMATTER ----------
+  const formatTime = (timestamp) => {
+    if (!timestamp) return "";
+    const date = new Date(timestamp);
+    if (isNaN(date)) return ""; // avoids "Invalid Date"
+    return date.toLocaleTimeString("en-IN", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
   // ---------- AUTH HANDLERS ----------
   const handleRegister = async () => {
     try {
@@ -371,48 +382,44 @@ function App() {
           <section className="chat-content">
             <div className="messages-column">
               {currentRoom ? (
-  messages.length ? (
-    messages.map((msg, index) => {
-      const isMe =
-        msg.username === username ||
-        msg.username === "You" ||
-        msg.username === auth.currentUser?.email;
+                messages.length ? (
+                  messages.map((msg, index) => {
+                    const isMe =
+                      msg.username === username ||
+                      msg.username === "You" ||
+                      msg.username === auth.currentUser?.email;
 
-      // ✅ Format time nicely in local timezone
-      const displayTime = msg.time
-        ? new Date(msg.time).toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })
-        : "";
+                    const displayTime = formatTime(msg.time);
 
-      return (
-        <div
-          key={index}
-          className={`message-row ${isMe ? "me" : "them"}`}
-        >
-          <div className="message-bubble">
-            <div className="message-meta">
-              <span className="message-user">
-                {isMe ? "You" : msg.username || "Anonymous"}
-              </span>
-              {displayTime && (
-                <span className="message-time">{displayTime}</span>
+                    return (
+                      <div
+                        key={index}
+                        className={`message-row ${isMe ? "me" : "them"}`}
+                      >
+                        <div className="message-bubble">
+                          <div className="message-meta">
+                            <span className="message-user">
+                              {isMe ? "You" : msg.username || "Anonymous"}
+                            </span>
+                            {displayTime && (
+                              <span className="message-time">
+                                {displayTime}
+                              </span>
+                            )}
+                          </div>
+                          <div className="message-text">{msg.text}</div>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <p className="no-messages">No messages yet. Say hi! 👋</p>
+                )
+              ) : (
+                <p className="no-room-selected">
+                  Choose a room or create a new one to start chatting.
+                </p>
               )}
-            </div>
-            <div className="message-text">{msg.text}</div>
-          </div>
-        </div>
-      );
-    })
-  ) : (
-    <p className="no-messages">No messages yet. Say hi! 👋</p>
-  )
-) : (
-  <p className="no-room-selected">
-    Choose a room or create a new one to start chatting.
-  </p>
-)}
 
               {typingUser && currentRoom && (
                 <p className="typing-indicator">

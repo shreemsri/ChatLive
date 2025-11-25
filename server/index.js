@@ -88,20 +88,17 @@ io.on("connection", (socket) => {
   });
 
   socket.on("send_message", ({ roomName, text }) => {
-    if (!roomName || !rooms[roomName] || !text) return;
+  if (!roomName || !rooms[roomName] || !text) return;
 
-    const msg = {
-      username: socket.username || "Anonymous",
-      text: text.trim(),
-      time: new Date().toLocaleTimeString("en-IN", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
-    };
+  const msg = {
+    username: socket.username || "Anonymous",
+    text: text.trim(),
+    time: new Date().toISOString(), // ✅ store ISO
+  };
 
-    rooms[roomName].messages.push(msg);
-    io.to(roomName).emit("receive_message", msg);
-  });
+  rooms[roomName].messages.push(msg);
+  io.to(roomName).emit("receive_message", msg);
+});
 
   // Correct delete room
   socket.on("delete_room", (roomName, callback) => {
