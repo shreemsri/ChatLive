@@ -273,7 +273,7 @@ function App() {
       {/* Sidebar */}
       <div className="sidebar">
         <div className="sidebar-header">
-          <h2>Rooms</h2>
+          <h2>ChatLive</h2>
 
           <button className="delete-room-btn" onClick={handleDeleteRoom}>
             Delete Room
