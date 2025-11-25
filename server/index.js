@@ -88,7 +88,7 @@ io.on("connection", (socket) => {
     }
 
     socket.join(roomName);
-    rooms[roomName].users[socket.id] = socket.username;
+    rooms[roomName].users[socket.id] = socket.username || "Anonymous";
 
     const data = {
       messages: rooms[roomName].messages,
@@ -115,7 +115,7 @@ io.on("connection", (socket) => {
     if (!roomName || !rooms[roomName]) return;
 
     const msg = {
-      username: socket.username ,
+      username: socket.username || "Anonymous",
       text,
       time: new Date().toISOString(), // store ISO
     };
