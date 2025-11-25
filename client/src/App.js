@@ -19,6 +19,16 @@ function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
+  // store room passwords locally so user doesn’t have to re-enter every time
+  const [roomPasswords, setRoomPasswords] = useState(() => {
+    try {
+      const stored = localStorage.getItem("roomPasswords");
+      return stored ? JSON.parse(stored) : {};
+    } catch {
+      return {};
+    }
+  });
+
   // ---------- CHAT ----------
   const [currentRoom, setCurrentRoom] = useState("");
   const [rooms, setRooms] = useState([]);
@@ -36,12 +46,21 @@ function App() {
     localStorage.getItem("theme") || "light"
   );
 
-  // Tell the socket our username whenever it exists (including after refresh)
+  // ---------- PERSIST ROOM PASSWORDS ----------
   useEffect(() => {
-  if (username) {
-    socket.emit("set_username", username);
-  }
-}, [username]);
+    try {
+      localStorage.setItem("roomPasswords", JSON.stringify(roomPasswords));
+    } catch {
+      // ignore
+    }
+  }, [roomPasswords]);
+
+  // ---------- SEND USERNAME TO SOCKET ----------
+  useEffect(() => {
+    if (username) {
+      socket.emit("set_username", username);
+    }
+  }, [username]);
 
   // ---------- THEME EFFECT ----------
   useEffect(() => {
@@ -94,15 +113,8 @@ function App() {
   }, []);
 
   // ---------- TIME FORMATTER ----------
-  const formatTime = (timestamp) => {
-    if (!timestamp) return "";
-    const date = new Date(timestamp);
-    if (isNaN(date)) return ""; // avoids "Invalid Date"
-    return date.toLocaleTimeString("en-IN", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
+  // Server already sends a nicely formatted time string (e.g. "03:59 pm")
+  const formatTime = (time) => time || "";
 
   // ---------- AUTH HANDLERS ----------
   const handleRegister = async () => {
@@ -182,28 +194,79 @@ function App() {
   };
 
   // ---------- ROOM / MESSAGE HANDLERS ----------
-  const joinRoom = (roomName) => {
+
+  const askForPassword = (roomName, message) => {
+    const input = window.prompt(
+      message ||
+        `Enter password for room "${roomName}".\nIf this is a new room, this password will be set.`
+    );
+    if (!input) return null;
+    return input.trim();
+  };
+
+  const joinRoom = (roomName, forceAskPassword = false) => {
     if (!roomName) return;
 
     console.log("➡️ joinRoom:", roomName);
 
-    socket.emit("join_room", roomName, ({ messages, users }) => {
-      console.log("✅ join_room callback:", { messages, users });
-      setCurrentRoom(roomName);
-      setMessages(messages);
-      setUsers(users);
-      socket.emit("get_rooms", (roomList) => setRooms(roomList));
-    });
+    let pwd = roomPasswords[roomName];
+
+    if (!pwd || forceAskPassword) {
+      const entered = askForPassword(roomName);
+      if (!entered) return;
+      pwd = entered;
+      setRoomPasswords((prev) => ({ ...prev, [roomName]: pwd }));
+    }
+
+    socket.emit(
+      "join_room",
+      { roomName, password: pwd },
+      (data = {}) => {
+        console.log("✅ join_room callback:", data);
+
+        if (!data.ok) {
+          alert(data.message || "Unable to join room.");
+          // if password was wrong, forget it so next attempt will re-ask
+          if (data.message && data.message.toLowerCase().includes("wrong")) {
+            setRoomPasswords((prev) => {
+              const copy = { ...prev };
+              delete copy[roomName];
+              return copy;
+            });
+          }
+          return;
+        }
+
+        const { messages = [], users = [] } = data;
+
+        setCurrentRoom(roomName);
+        setMessages(messages);
+        setUsers(users);
+
+        socket.emit("get_rooms", (roomList) => setRooms(roomList));
+      }
+    );
   };
 
   const handleCreateOrJoinRoom = () => {
-    if (!roomInput.trim()) return;
-    joinRoom(roomInput.trim());
+    const trimmed = roomInput.trim();
+    if (!trimmed) return;
+    joinRoom(trimmed);
     setRoomInput("");
   };
 
   const handleDeleteRoom = (roomName) => {
     if (!roomName) return;
+
+    // we either use stored password or ask for it
+    let pwd = roomPasswords[roomName];
+    if (!pwd) {
+      pwd = askForPassword(
+        roomName,
+        `Enter password again to delete room "${roomName}" for everyone:`
+      );
+      if (!pwd) return;
+    }
 
     const confirmDelete = window.confirm(
       `Are you sure you want to delete "${roomName}" for everyone?`
@@ -212,20 +275,40 @@ function App() {
 
     console.log("🗑 Sending delete_room for:", roomName);
 
-    socket.emit("delete_room", roomName, (success) => {
-      if (success) {
+    socket.emit(
+      "delete_room",
+      { roomName, password: pwd },
+      (res = {}) => {
+        if (!res.ok) {
+          alert(res.message || "Failed to delete room.");
+          // if wrong password, forget saved one
+          if (res.message && res.message.toLowerCase().includes("wrong")) {
+            setRoomPasswords((prev) => {
+              const copy = { ...prev };
+              delete copy[roomName];
+              return copy;
+            });
+          }
+          console.log("❌ Room deletion failed:", res);
+          return;
+        }
+
         console.log("✅ Room deleted:", roomName);
         setRooms((prev) => prev.filter((r) => r !== roomName));
+
+        setRoomPasswords((prev) => {
+          const copy = { ...prev };
+          delete copy[roomName];
+          return copy;
+        });
+
         if (currentRoom === roomName) {
           setCurrentRoom("");
           setMessages([]);
           setUsers([]);
         }
-      } else {
-        console.log("❌ Room deletion failed");
-        alert("Failed to delete room.");
       }
-    });
+    );
   };
 
   const handleSendMessage = (e) => {
