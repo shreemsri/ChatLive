@@ -12,7 +12,7 @@ import {
 } from "firebase/auth";
 
 // 👇 change ONLY THIS for local/dev/prod
-const socket = io("https://chatlive-server.onrender.com", {
+const socket = io("https://chatlive-1.onrender.com", {
   transports: ["websocket", "polling"],
 });
 

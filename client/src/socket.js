@@ -4,8 +4,8 @@ import { io } from "socket.io-client";
 // Hard-coded Render backend URL
 const BACKEND_URL = "https://chatlive-1.onrender.com";
 
-const socket = io(BACKEND_URL, {
-  transports: ["polling"], // disable websocket to avoid Render proxy issues
+const socket = io("https://chatlive-1.onrender.com", {
+  transports: ["polling"], // more reliable on Render free tier
   upgrade: false,
 });
 
