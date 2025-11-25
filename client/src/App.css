@@ -266,7 +266,7 @@ body.dark-mode {
 }
 
 .messages-column {
-  background: rgba(255, 255, 255, 0.32);
+  background: #ffffff;
   border-radius: 18px;
   padding: 10px 12px;
   overflow-y: auto;
