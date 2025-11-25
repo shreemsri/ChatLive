@@ -1,4 +1,4 @@
-// src/App.js
+// client/src/App.js
 import React, { useState, useEffect } from "react";
 import socket from "./socket";
 import "./App.css";
@@ -12,14 +12,14 @@ import {
 } from "firebase/auth";
 
 function App() {
-  // ========= AUTH STATE =========
+  // ---------- AUTH ----------
   const [username, setUsername] = useState(
     localStorage.getItem("username") || ""
   );
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  // ========= CHAT STATE =========
+  // ---------- CHAT ----------
   const [currentRoom, setCurrentRoom] = useState("");
   const [rooms, setRooms] = useState([]);
   const [roomInput, setRoomInput] = useState("");
@@ -36,7 +36,7 @@ function App() {
     localStorage.getItem("theme") || "light"
   );
 
-  // ========= THEME EFFECT =========
+  // ---------- THEME EFFECT ----------
   useEffect(() => {
     if (theme === "dark") {
       document.body.classList.add("dark-mode");
@@ -50,7 +50,7 @@ function App() {
     setTheme((prev) => (prev === "light" ? "dark" : "light"));
   };
 
-  // ========= SOCKET LISTENERS =========
+  // ---------- SOCKET LISTENERS ----------
   useEffect(() => {
     socket.on("receive_message", (msg) => {
       setMessages((prev) => [...prev, msg]);
@@ -81,14 +81,12 @@ function App() {
     };
   }, []);
 
-  // get existing rooms initially
+  // fetch rooms once
   useEffect(() => {
-    socket.emit("get_rooms", (roomList) => {
-      setRooms(roomList || []);
-    });
+    socket.emit("get_rooms", (roomList) => setRooms(roomList));
   }, []);
 
-  // ========= AUTH HANDLERS =========
+  // ---------- AUTH HANDLERS ----------
   const handleRegister = async () => {
     try {
       if (!email || !password) {
@@ -106,7 +104,6 @@ function App() {
       setUsername(userEmail);
       localStorage.setItem("username", userEmail);
       socket.emit("set_username", userEmail);
-
       alert("Registered & logged in as " + userEmail);
     } catch (err) {
       console.error("Register error:", err);
@@ -131,7 +128,6 @@ function App() {
       setUsername(userEmail);
       localStorage.setItem("username", userEmail);
       socket.emit("set_username", userEmail);
-
       alert("Logged in as " + userEmail);
     } catch (err) {
       console.error("Login error:", err);
@@ -147,7 +143,6 @@ function App() {
       setUsername(userEmail);
       localStorage.setItem("username", userEmail);
       socket.emit("set_username", userEmail);
-
       alert("Logged in with Google as " + userEmail);
     } catch (err) {
       console.error("Google login error:", err);
@@ -168,16 +163,18 @@ function App() {
     localStorage.removeItem("username");
   };
 
-  // ========= ROOM & MESSAGE HANDLERS =========
+  // ---------- ROOM / MESSAGE HANDLERS ----------
   const joinRoom = (roomName) => {
     if (!roomName) return;
 
     console.log("➡️ joinRoom:", roomName);
 
     socket.emit("join_room", roomName, ({ messages, users }) => {
+      console.log("✅ join_room callback:", { messages, users });
       setCurrentRoom(roomName);
-      setMessages(messages || []);
-      setUsers(users || []);
+      setMessages(messages);
+      setUsers(users);
+      socket.emit("get_rooms", (roomList) => setRooms(roomList));
     });
   };
 
@@ -191,7 +188,7 @@ function App() {
     if (!roomName) return;
 
     const confirmDelete = window.confirm(
-      `Are you sure you want to delete "${roomName}"?`
+      `Are you sure you want to delete "${roomName}" for everyone?`
     );
     if (!confirmDelete) return;
 
@@ -239,206 +236,212 @@ function App() {
     setTypingTimeout(timeout);
   };
 
-  // helper for time display (server sends ISO string)
-  const formatTime = (isoString) => {
-    if (!isoString) return "";
-    const d = new Date(isoString);
-    return d.toLocaleTimeString([], {
-      hour: "numeric",
-      minute: "2-digit",
-    });
-  };
-
-  // ========= LOGIN SCREEN UI =========
+  // ---------- LOGIN SCREEN ----------
   if (!username) {
     return (
-      <div className="auth-shell">
-        <div className="auth-card">
-          <h1 className="logo-text">ChatLive</h1>
-          <p className="auth-subtitle">Realtime rooms with Firebase login</p>
+      <div className="login-wrapper">
+        <div className="login-card glass">
+          <h1 className="login-title">ChatLive</h1>
+          <p className="login-subtitle">Realtime rooms with your friends</p>
 
           <input
-            className="auth-input"
             type="email"
             placeholder="Email"
+            className="login-input"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
           />
 
           <input
-            className="auth-input"
             type="password"
             placeholder="Password"
+            className="login-input"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
           />
 
-          <button className="auth-btn primary" onClick={handleLogin}>
+          <button className="primary-btn" onClick={handleLogin}>
             Login
           </button>
-          <button className="auth-btn ghost" onClick={handleRegister}>
+          <button className="ghost-btn" onClick={handleRegister}>
             Register
           </button>
 
-          <div className="auth-divider">
-            <span>or</span>
+          <div className="login-divider">
+            <span>OR</span>
           </div>
 
-          <button className="auth-btn google" onClick={handleGoogleLogin}>
-            Continue with Google
+          <button className="google-btn" onClick={handleGoogleLogin}>
+            Sign in with Google
           </button>
         </div>
       </div>
     );
   }
 
-  // ========= MAIN CHAT UI =========
+  // ---------- MAIN CHAT UI ----------
   return (
-    <div className="app-shell">
-      <div className="app-gradient" />
-
+    <div className={`app-shell ${theme === "dark" ? "dark-theme" : ""}`}>
       <div className="app-inner">
         {/* SIDEBAR */}
-        <aside className="sidebar">
+        <aside className="sidebar glass">
           <div className="sidebar-header">
-            <h2 className="sidebar-title">Rooms</h2>
+            <h2 className="app-logo">ChatLive</h2>
             <button className="logout-chip" onClick={handleLogout}>
               LOGOUT
             </button>
           </div>
 
-          <div className="sidebar-card">
-            <label className="field-label">Room name…</label>
+          <div className="sidebar-room-input">
+            <label className="field-label">Room name...</label>
             <div className="room-input-row">
               <input
-                className="room-input"
                 type="text"
+                className="room-input"
                 placeholder="Room name..."
                 value={roomInput}
                 onChange={(e) => setRoomInput(e.target.value)}
               />
               <button
-                className="room-create-btn"
+                className="primary-btn small"
                 onClick={handleCreateOrJoinRoom}
               >
                 Create / Join
               </button>
             </div>
+          </div>
 
-            <div className="room-list">
-              {rooms.length === 0 && (
-                <p className="room-empty">No rooms yet. Create one!</p>
-              )}
-              {rooms.map((room) => (
-                <div
-                  key={room}
-                  className={`room-pill ${
-                    currentRoom === room ? "room-pill-active" : ""
-                  }`}
+          <div className="sidebar-rooms-list">
+            {rooms.length === 0 && (
+              <p className="empty-text">No rooms yet. Create one!</p>
+            )}
+            {rooms.map((room) => (
+              <div
+                key={room}
+                className={`room-pill ${
+                  currentRoom === room ? "room-pill-active" : ""
+                }`}
+              >
+                <button
+                  className="room-pill-main"
+                  onClick={() => joinRoom(room)}
                 >
-                  <div
-                    className="room-pill-main"
-                    onClick={() => joinRoom(room)}
-                  >
-                    <span className="room-status-dot" />
-                    <span className="room-name-text">{room}</span>
-                  </div>
-                  <button
-                    className="room-delete"
-                    onClick={() => handleDeleteRoom(room)}
-                  >
-                    ✕
-                  </button>
-                </div>
-              ))}
-            </div>
+                  <span className="room-status-dot" />
+                  <span className="room-pill-name">{room}</span>
+                </button>
+                <button
+                  className="room-pill-delete"
+                  onClick={() => handleDeleteRoom(room)}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
           </div>
         </aside>
 
-        {/* MAIN CHAT COLUMN */}
-        <main className="chat-main-shell">
-          {/* Header */}
+        {/* MAIN PANEL */}
+        <main className="chat-panel glass">
+          {/* top header */}
           <header className="chat-header">
-            <div className="chat-room-title">
-              {currentRoom || "No Room Selected"}
+            <div className="chat-header-left">
+              <h2 className="room-title">
+                {currentRoom || "No Room Selected"}
+              </h2>
+              <p className="room-subtitle">
+                {currentRoom
+                  ? "Chat in real-time with anyone in this room."
+                  : "Choose a room or create a new one to start chatting."}
+              </p>
             </div>
 
             <div className="chat-header-right">
-              <button className="theme-toggle-pill" onClick={toggleTheme}>
+              <button
+                className="theme-toggle"
+                onClick={toggleTheme}
+                title="Toggle theme"
+              >
                 {theme === "light" ? "🌙" : "☀️"}
               </button>
-
-              <div className="user-pill">
-                <span className="user-pill-text">Hi, {username}</span>
-              </div>
+              <span className="user-chip">Hi, {username}</span>
             </div>
           </header>
 
+          {/* middle area */}
           <section className="chat-content">
-            {/* messages */}
-            <div className="messages-panel">
-              {!currentRoom && (
-                <p className="empty-state-text">
-                  Choose a room or create a new one to start chatting.
-                </p>
-              )}
-
-              {currentRoom && messages.length === 0 && (
-                <p className="empty-state-text">
-                  No messages yet. Say hi 👋
-                </p>
-              )}
-
-              {messages.map((msg, idx) => {
-                const isMe = msg.username === username;
-                return (
-                  <div
-                    key={idx}
-                    className={`bubble-row ${isMe ? "bubble-row-me" : ""}`}
-                  >
-                    {!isMe && (
-                      <span className="bubble-username">{msg.username}</span>
-                    )}
-                    <div className="bubble">
-                      <div className="bubble-text">{msg.text}</div>
-                      <div className="bubble-meta">
-                        <span>{isMe ? "You" : ""}</span>
-                        <span>{formatTime(msg.time)}</span>
+            <div className="messages-column">
+              {currentRoom ? (
+                messages.length ? (
+                  messages.map((msg, index) => {
+                    const isMe =
+                      msg.username === username ||
+                      msg.username === "You" ||
+                      msg.username === auth.currentUser?.email;
+                    return (
+                      <div
+                        key={index}
+                        className={`message-row ${isMe ? "me" : "them"}`}
+                      >
+                        <div className="message-bubble">
+                          <div className="message-meta">
+                            <span className="message-user">
+                              {isMe ? "You" : msg.username}
+                            </span>
+                            {msg.time && (
+                              <span className="message-time">{msg.time}</span>
+                            )}
+                          </div>
+                          <div className="message-text">{msg.text}</div>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                );
-              })}
+                    );
+                  })
+                ) : (
+                  <p className="empty-text">No messages yet. Say hi 👋</p>
+                )
+              ) : (
+                <p className="empty-text">
+                  Join a room to start chatting with others.
+                </p>
+              )}
 
               {typingUser && currentRoom && (
                 <p className="typing-indicator">
-                  {typingUser} is typing…
+                  {typingUser === username ? "You" : typingUser} is typing…
                 </p>
               )}
             </div>
 
             {/* users */}
-            <div className="users-panel">
+            <aside className="users-column">
               <h3 className="users-title">USERS</h3>
-              {!currentRoom && (
-                <p className="users-empty">Join a room to see users.</p>
-              )}
-              {currentRoom && users.length === 0 && (
-                <p className="users-empty">No users yet.</p>
-              )}
-              {users.map((u, i) => (
-                <div key={i} className="user-chip">
-                  {u}
-                </div>
-              ))}
-            </div>
+              <div className="users-list">
+                {currentRoom ? (
+                  users.length ? (
+                    users.map((u, i) => (
+                      <div key={i} className="user-pill">
+                        {u}
+                      </div>
+                    ))
+                  ) : (
+                    <p className="empty-text small">
+                      No users in this room yet.
+                    </p>
+                  )
+                ) : (
+                  <p className="empty-text small">
+                    Join a room to see who&apos;s online.
+                  </p>
+                )}
+              </div>
+            </aside>
           </section>
 
-          {/* input bar */}
-          <form className="input-bar" onSubmit={handleSendMessage}>
+          {/* bottom input */}
+          <form className="chat-input-row" onSubmit={handleSendMessage}>
             <input
-              className="input-field"
               type="text"
+              className="chat-input"
               placeholder={
                 currentRoom ? "Type here..." : "Join a room to start chatting"
               }
@@ -447,8 +450,8 @@ function App() {
               disabled={!currentRoom}
             />
             <button
-              className="send-btn"
               type="submit"
+              className="primary-btn pill"
               disabled={!currentRoom || !messageText.trim()}
             >
               Send
