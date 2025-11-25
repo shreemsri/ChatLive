@@ -36,6 +36,13 @@ function App() {
     localStorage.getItem("theme") || "light"
   );
 
+  // Tell the socket our username whenever it exists (including after refresh)
+  useEffect(() => {
+  if (username) {
+    socket.emit("set_username", username);
+  }
+}, [username]);
+
   // ---------- THEME EFFECT ----------
   useEffect(() => {
     if (theme === "dark") {
