@@ -6,7 +6,7 @@ const cors = require("cors");
 
 const app = express();
 
-// ✅ Allow both local dev + deployed frontend
+// Allowed frontend origins
 const ALLOWED_ORIGINS = [
   "http://localhost:3000",
   "https://chat-live-gold.vercel.app",
@@ -32,6 +32,7 @@ const io = new Server(server, {
   },
 });
 
+// Debug socket errors
 io.engine.on("connection_error", (err) => {
   console.log(
     "🔥 Socket error:",
@@ -41,16 +42,17 @@ io.engine.on("connection_error", (err) => {
   );
 });
 
-// Simple health route
+// Health check
 app.get("/", (req, res) => {
   res.send("ChatLive backend is running ✅");
 });
 
 /**
- * rooms = {
+ * rooms structure:
+ * {
  *   roomName: {
- *     password: "plain-text-password",   // demo only, not secure
- *     users: { [username]: true },
+ *     password: "plain-text-password",
+ *     users: { username: true },
  *     messages: [{ username, text, time }]
  *   }
  * }
@@ -60,13 +62,13 @@ const rooms = {};
 io.on("connection", (socket) => {
   console.log("✅ New client:", socket.id);
 
-  // --- Username for this socket ---
+  // Set username
   socket.on("set_username", (username) => {
     socket.username = username;
     console.log("set_username:", username, "for", socket.id);
   });
 
-  // --- Typing indicator ---
+  // Typing indicators
   socket.on("typing", (roomName) => {
     if (!roomName) return;
     io.to(roomName).emit("user_typing", socket.username || "Someone");
@@ -77,49 +79,43 @@ io.on("connection", (socket) => {
     io.to(roomName).emit("user_stop_typing");
   });
 
-  // --- JOIN / CREATE ROOM WITH PASSWORD ---
+  // JOIN / CREATE ROOM (with password)
   socket.on("join_room", (payload, callback) => {
     const { roomName, password } = payload || {};
 
     if (!roomName || !password) {
       callback &&
-        callback({
-          ok: false,
-          message: "Room name and password are required.",
-        });
+        callback({ ok: false, message: "Room name and password are required." });
       return;
     }
 
     const username = socket.username || "Anonymous";
-    console.log("➡️ join_room:", roomName, "from", username, socket.id);
+    console.log(`➡️ join_room: ${roomName} from ${username}`);
 
-    const existing = rooms[roomName];
+    const existingRoom = rooms[roomName];
+    let createdNew = false;
 
-    if (!existing) {
-      // New room – set password
+    if (!existingRoom) {
+      // Create new room
       rooms[roomName] = {
         password,
         users: {},
         messages: [],
       };
-      console.log("🆕 Created room:", roomName);
+      createdNew = true;
+      console.log("🆕 Room created:", roomName);
     } else {
-      // Existing room – verify password
-      if (existing.password !== password) {
-        console.log("❌ Wrong password for room:", roomName);
+      // Wrong password
+      if (existingRoom.password !== password) {
         callback &&
-          callback({
-            ok: false,
-            message: "Wrong password for this room.",
-          });
+          callback({ ok: false, message: "Wrong password for this room." });
         return;
       }
     }
 
-    // Remove this user from all other rooms (by username)
+    // Remove user from all other rooms
     for (const rName of Object.keys(rooms)) {
-      if (rName === roomName) continue;
-      if (rooms[rName].users[username]) {
+      if (rName !== roomName && rooms[rName].users[username]) {
         delete rooms[rName].users[username];
         io.to(rName).emit("room_users", Object.keys(rooms[rName].users));
       }
@@ -136,72 +132,66 @@ io.on("connection", (socket) => {
     };
 
     callback && callback(data);
+
+    // Notify users
     io.to(roomName).emit("room_users", data.users);
+
+    // Refresh room list globally if new room created
+    if (createdNew) io.emit("rooms_updated", Object.keys(rooms));
   });
 
-  // --- List rooms ---
+  // List rooms
   socket.on("get_rooms", (callback) => {
-    const list = Object.keys(rooms);
-    callback && callback(list);
+    callback && callback(Object.keys(rooms));
   });
 
-  // --- Send message ---
+  // Send message
   socket.on("send_message", ({ roomName, text }) => {
     if (!roomName || !rooms[roomName] || !text) return;
 
     const msg = {
       username: socket.username || "Anonymous",
       text: text.trim(),
-      time: new Date().toLocaleTimeString("en-IN", {
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
+      time: new Date().toISOString(), // ISO timestamp
     };
 
     rooms[roomName].messages.push(msg);
     io.to(roomName).emit("receive_message", msg);
   });
 
-  // --- DELETE ROOM (REQUIRE PASSWORD) ---
+  // DELETE ROOM (with password)
   socket.on("delete_room", (payload, callback) => {
     const { roomName, password } = payload || {};
-    console.log("🗑 delete_room requested:", roomName);
+
+    console.log("🗑 delete_room:", roomName);
 
     if (!roomName || !password || !rooms[roomName]) {
       callback &&
-        callback({
-          ok: false,
-          message: "Room not found or missing password.",
-        });
+        callback({ ok: false, message: "Room not found or missing password." });
       return;
     }
 
+    // Wrong password
     if (rooms[roomName].password !== password) {
-      console.log("❌ Wrong password when deleting room:", roomName);
       callback &&
-        callback({
-          ok: false,
-          message: "Wrong password. Cannot delete room.",
-        });
+        callback({ ok: false, message: "Wrong password. Cannot delete room." });
       return;
     }
 
-    // Actually delete the room
     delete rooms[roomName];
 
-    // Notify all clients to refresh rooms list
     io.emit("rooms_updated", Object.keys(rooms));
-
     callback && callback({ ok: true });
   });
 
-  // --- Disconnect ---
+  // Disconnect cleanup
   socket.on("disconnect", () => {
     console.log("❌ Disconnected:", socket.id);
+
     const username = socket.username || "Anonymous";
 
     for (const roomName of Object.keys(rooms)) {
-      if (rooms[roomName]?.users?.[username]) {
+      if (rooms[roomName].users[username]) {
         delete rooms[roomName].users[username];
         io.to(roomName).emit(
           "room_users",
@@ -212,6 +202,7 @@ io.on("connection", (socket) => {
   });
 });
 
+// Start server
 const PORT = process.env.PORT || 5001;
 server.listen(PORT, () => {
   console.log(`🔥 Server listening on port ${PORT}`);

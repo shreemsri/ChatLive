@@ -1,5 +1,5 @@
 // client/src/App.js
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import socket from "./socket";
 import "./App.css";
 
@@ -39,14 +39,12 @@ function App() {
 
   // typing indicator
   const [typingUser, setTypingUser] = useState("");
-  const [typingTimeout, setTypingTimeout] = useState(null);
+  const typingTimeoutRef = useRef(null);
 
   // theme
-  const [theme, setTheme] = useState(
-    localStorage.getItem("theme") || "light"
-  );
+  const [theme, setTheme] = useState(localStorage.getItem("theme") || "light");
 
-  // ---------- PERSIST ROOM PASSWORDS ----------
+  // Save roomPasswords persistently
   useEffect(() => {
     try {
       localStorage.setItem("roomPasswords", JSON.stringify(roomPasswords));
@@ -55,82 +53,106 @@ function App() {
     }
   }, [roomPasswords]);
 
-  // ---------- SEND USERNAME TO SOCKET ----------
+  // If socket reconnects, tell server our username (if we have one)
   useEffect(() => {
+    const onConnect = () => {
+      const saved = localStorage.getItem("username");
+      if (saved) {
+        socket.emit("set_username", saved);
+        // refresh rooms list too
+        socket.emit("get_rooms", (list) => setRooms(list || []));
+      }
+    };
+    socket.on("connect", onConnect);
+
+    // also immediately send username if already present
     if (username) {
       socket.emit("set_username", username);
     }
+
+    return () => {
+      socket.off("connect", onConnect);
+    };
   }, [username]);
 
-  // ---------- THEME EFFECT ----------
+  // theme effect
   useEffect(() => {
-    if (theme === "dark") {
-      document.body.classList.add("dark-mode");
-    } else {
-      document.body.classList.remove("dark-mode");
-    }
+    if (theme === "dark") document.body.classList.add("dark-mode");
+    else document.body.classList.remove("dark-mode");
     localStorage.setItem("theme", theme);
   }, [theme]);
 
-  const toggleTheme = () => {
-    setTheme((prev) => (prev === "light" ? "dark" : "light"));
-  };
-
-  // ---------- SOCKET LISTENERS ----------
+  // socket listeners
   useEffect(() => {
-    socket.on("receive_message", (msg) => {
-      setMessages((prev) => [...prev, msg]);
-    });
+    const onReceive = (msg) => setMessages((prev) => [...prev, msg]);
+    const onRoomUsers = (u) => setUsers(u || []);
+    const onUserTyping = (n) => setTypingUser(n);
+    const onUserStopTyping = () => setTypingUser("");
+    const onRoomsUpdated = (list) => setRooms(list || []);
 
-    socket.on("room_users", (usersList) => {
-      setUsers(usersList);
-    });
-
-    socket.on("user_typing", (name) => {
-      setTypingUser(name);
-    });
-
-    socket.on("user_stop_typing", () => {
-      setTypingUser("");
-    });
-
-    socket.on("rooms_updated", (roomList) => {
-      setRooms(roomList);
-    });
+    socket.on("receive_message", onReceive);
+    socket.on("room_users", onRoomUsers);
+    socket.on("user_typing", onUserTyping);
+    socket.on("user_stop_typing", onUserStopTyping);
+    socket.on("rooms_updated", onRoomsUpdated);
 
     return () => {
-      socket.off("receive_message");
-      socket.off("room_users");
-      socket.off("user_typing");
-      socket.off("user_stop_typing");
-      socket.off("rooms_updated");
+      socket.off("receive_message", onReceive);
+      socket.off("room_users", onRoomUsers);
+      socket.off("user_typing", onUserTyping);
+      socket.off("user_stop_typing", onUserStopTyping);
+      socket.off("rooms_updated", onRoomsUpdated);
     };
   }, []);
 
-  // fetch rooms once
+  // fetch rooms once on mount
   useEffect(() => {
-    socket.emit("get_rooms", (roomList) => setRooms(roomList));
+    socket.emit("get_rooms", (roomList) => setRooms(roomList || []));
   }, []);
 
-  // ---------- TIME FORMATTER ----------
-  // Server already sends a nicely formatted time string (e.g. "03:59 pm")
-  const formatTime = (time) => time || "";
+  // robust time formatter
+  const formatTime = (raw) => {
+    if (!raw) return "";
+    // if it's a number (epoch ms)
+    if (typeof raw === "number") {
+      const d = new Date(raw);
+      if (isNaN(d)) return "";
+      return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    }
+    // Date object
+    if (raw instanceof Date) {
+      if (isNaN(raw)) return "";
+      return raw.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    }
+    // string: try numeric epoch or Date.parse (ISO)
+    if (typeof raw === "string") {
+      // pure digits? epoch ms as string
+      if (/^\d+$/.test(raw)) {
+        const d = new Date(Number(raw));
+        if (!isNaN(d))
+          return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      }
+      const parsed = Date.parse(raw);
+      if (!isNaN(parsed)) {
+        const d = new Date(parsed);
+        return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      }
+      // fallback: raw human-readable string already
+      return raw;
+    }
+    return "";
+  };
 
   // ---------- AUTH HANDLERS ----------
   const handleRegister = async () => {
     try {
-      if (!email || !password) {
-        alert("Please enter email and password");
-        return;
-      }
-
+      if (!email || !password) return alert("Please enter email and password");
       const userCredential = await createUserWithEmailAndPassword(
         auth,
         email,
         password
       );
       const userEmail = userCredential.user.email;
-
       setUsername(userEmail);
       localStorage.setItem("username", userEmail);
       socket.emit("set_username", userEmail);
@@ -143,18 +165,9 @@ function App() {
 
   const handleLogin = async () => {
     try {
-      if (!email || !password) {
-        alert("Please enter email and password");
-        return;
-      }
-
-      const userCredential = await signInWithEmailAndPassword(
-        auth,
-        email,
-        password
-      );
+      if (!email || !password) return alert("Please enter email and password");
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const userEmail = userCredential.user.email;
-
       setUsername(userEmail);
       localStorage.setItem("username", userEmail);
       socket.emit("set_username", userEmail);
@@ -169,7 +182,6 @@ function App() {
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const userEmail = result.user.email;
-
       setUsername(userEmail);
       localStorage.setItem("username", userEmail);
       socket.emit("set_username", userEmail);
@@ -194,7 +206,6 @@ function App() {
   };
 
   // ---------- ROOM / MESSAGE HANDLERS ----------
-
   const askForPassword = (roomName, message) => {
     const input = window.prompt(
       message ||
@@ -206,11 +217,7 @@ function App() {
 
   const joinRoom = (roomName, forceAskPassword = false) => {
     if (!roomName) return;
-
-    console.log("➡️ joinRoom:", roomName);
-
     let pwd = roomPasswords[roomName];
-
     if (!pwd || forceAskPassword) {
       const entered = askForPassword(roomName);
       if (!entered) return;
@@ -218,34 +225,30 @@ function App() {
       setRoomPasswords((prev) => ({ ...prev, [roomName]: pwd }));
     }
 
-    socket.emit(
-      "join_room",
-      { roomName, password: pwd },
-      (data = {}) => {
-        console.log("✅ join_room callback:", data);
-
-        if (!data.ok) {
-          alert(data.message || "Unable to join room.");
-          // if password was wrong, forget it so next attempt will re-ask
-          if (data.message && data.message.toLowerCase().includes("wrong")) {
-            setRoomPasswords((prev) => {
-              const copy = { ...prev };
-              delete copy[roomName];
-              return copy;
-            });
-          }
-          return;
-        }
-
-        const { messages = [], users = [] } = data;
-
-        setCurrentRoom(roomName);
-        setMessages(messages);
-        setUsers(users);
-
-        socket.emit("get_rooms", (roomList) => setRooms(roomList));
+    socket.emit("join_room", { roomName, password: pwd }, (data = {}) => {
+      if (!data) {
+        alert("No response from server.");
+        return;
       }
-    );
+      if (data.ok === false) {
+        alert(data.message || "Unable to join room.");
+        // if wrong password, forget it locally so next time user is re-prompted
+        if (data.message && data.message.toLowerCase().includes("wrong")) {
+          setRoomPasswords((prev) => {
+            const copy = { ...prev };
+            delete copy[roomName];
+            return copy;
+          });
+        }
+        return;
+      }
+
+      setCurrentRoom(roomName);
+      setMessages(data.messages || []);
+      setUsers(data.users || []);
+      // refresh rooms list
+      socket.emit("get_rooms", (roomList) => setRooms(roomList || []));
+    });
   };
 
   const handleCreateOrJoinRoom = () => {
@@ -256,57 +259,42 @@ function App() {
   };
 
   const handleDeleteRoom = (roomName) => {
-  if (!roomName) return;
+    if (!roomName) return;
 
-  // Ask user if they're sure
-  const confirmDelete = window.confirm(
-    `Are you sure you want to delete "${roomName}" for everyone?`
-  );
-  if (!confirmDelete) return;
+    const confirmDelete = window.confirm(
+      `Are you sure you want to delete "${roomName}" for everyone?`
+    );
+    if (!confirmDelete) return;
 
-  // 🔐 ALWAYS ASK FOR PASSWORD (do not reuse stored one)
-  const pwdInput = window
-    .prompt(`Enter password to delete room "${roomName}":`)
-    ?.trim();
+    // ALWAYS ask for password before deletion (do not re-use cached password automatically)
+    const pwdInput = window.prompt(`Enter password to delete room "${roomName}":`);
+    if (!pwdInput) {
+      alert("Password is required to delete this room.");
+      return;
+    }
 
-  if (!pwdInput) {
-    alert("Password is required to delete this room.");
-    return;
-  }
-
-  console.log("🗑 Sending delete_room for:", roomName);
-
-  socket.emit(
-    "delete_room",
-    { roomName, password: pwdInput }, // ✅ send as object, matches server
-    (res = {}) => {
+    socket.emit("delete_room", { roomName, password: pwdInput.trim() }, (res = {}) => {
       if (!res.ok) {
         alert(res.message || "Failed to delete room.");
         console.log("❌ Room deletion failed:", res);
         return;
       }
 
-      console.log("✅ Room deleted:", roomName);
-
-      // Remove from sidebar list
+      // success
       setRooms((prev) => prev.filter((r) => r !== roomName));
-
-      // Clear current room if we were inside it
       if (currentRoom === roomName) {
         setCurrentRoom("");
         setMessages([]);
         setUsers([]);
       }
-
-      // Optionally forget stored password for that room
+      // remove saved password
       setRoomPasswords((prev) => {
         const copy = { ...prev };
         delete copy[roomName];
         return copy;
       });
-    }
-  );
-};
+    });
+  };
 
   const handleSendMessage = (e) => {
     e.preventDefault();
@@ -327,14 +315,13 @@ function App() {
 
     socket.emit("typing", currentRoom);
 
-    if (typingTimeout) clearTimeout(typingTimeout);
-    const timeout = setTimeout(() => {
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
       socket.emit("stop_typing", currentRoom);
     }, 800);
-    setTypingTimeout(timeout);
   };
 
-  // ---------- LOGIN SCREEN ----------
+  // show login if not logged in
   if (!username) {
     return (
       <div className="login-wrapper">
@@ -377,7 +364,7 @@ function App() {
     );
   }
 
-  // ---------- MAIN CHAT UI ----------
+  // ---------- MAIN UI ----------
   return (
     <div className={`app-shell ${theme === "dark" ? "dark-theme" : ""}`}>
       <div className="app-inner">
@@ -400,37 +387,21 @@ function App() {
                 value={roomInput}
                 onChange={(e) => setRoomInput(e.target.value)}
               />
-              <button
-                className="primary-btn small"
-                onClick={handleCreateOrJoinRoom}
-              >
+              <button className="primary-btn small" onClick={handleCreateOrJoinRoom}>
                 Create / Join
               </button>
             </div>
           </div>
 
           <div className="sidebar-rooms-list">
-            {rooms.length === 0 && (
-              <p className="empty-text">No rooms yet. Create one!</p>
-            )}
+            {rooms.length === 0 && <p className="empty-text">No rooms yet. Create one!</p>}
             {rooms.map((room) => (
-              <div
-                key={room}
-                className={`room-pill ${
-                  currentRoom === room ? "room-pill-active" : ""
-                }`}
-              >
-                <button
-                  className="room-pill-main"
-                  onClick={() => joinRoom(room)}
-                >
+              <div key={room} className={`room-pill ${currentRoom === room ? "room-pill-active" : ""}`}>
+                <button className="room-pill-main" onClick={() => joinRoom(room)}>
                   <span className="room-status-dot" />
                   <span className="room-pill-name">{room}</span>
                 </button>
-                <button
-                  className="room-pill-delete"
-                  onClick={() => handleDeleteRoom(room)}
-                >
+                <button className="room-pill-delete" onClick={() => handleDeleteRoom(room)}>
                   ✕
                 </button>
               </div>
@@ -443,22 +414,14 @@ function App() {
           {/* top header */}
           <header className="chat-header">
             <div className="chat-header-left">
-              <h2 className="room-title">
-                {currentRoom || "No Room Selected"}
-              </h2>
+              <h2 className="room-title">{currentRoom || "No Room Selected"}</h2>
               <p className="room-subtitle">
-                {currentRoom
-                  ? "Chat in real-time with anyone in this room."
-                  : "Choose a room or create a new one to start chatting."}
+                {currentRoom ? "Chat in real-time with anyone in this room." : "Choose a room or create a new one to start chatting."}
               </p>
             </div>
 
             <div className="chat-header-right">
-              <button
-                className="theme-toggle"
-                onClick={toggleTheme}
-                title="Toggle theme"
-              >
+              <button className="theme-toggle" onClick={() => setTheme((t) => (t === "light" ? "dark" : "light"))} title="Toggle theme">
                 {theme === "light" ? "🌙" : "☀️"}
               </button>
               <span className="user-chip">Hi, {username}</span>
@@ -471,28 +434,14 @@ function App() {
               {currentRoom ? (
                 messages.length ? (
                   messages.map((msg, index) => {
-                    const isMe =
-                      msg.username === username ||
-                      msg.username === "You" ||
-                      msg.username === auth.currentUser?.email;
-
+                    const isMe = msg.username === username || msg.username === auth.currentUser?.email;
                     const displayTime = formatTime(msg.time);
-
                     return (
-                      <div
-                        key={index}
-                        className={`message-row ${isMe ? "me" : "them"}`}
-                      >
+                      <div key={index} className={`message-row ${isMe ? "me" : "them"}`}>
                         <div className="message-bubble">
                           <div className="message-meta">
-                            <span className="message-user">
-                              {isMe ? "You" : msg.username || "Anonymous"}
-                            </span>
-                            {displayTime && (
-                              <span className="message-time">
-                                {displayTime}
-                              </span>
-                            )}
+                            <span className="message-user">{isMe ? "You" : msg.username || "Anonymous"}</span>
+                            {displayTime && <span className="message-time">{displayTime}</span>}
                           </div>
                           <div className="message-text">{msg.text}</div>
                         </div>
@@ -503,15 +452,11 @@ function App() {
                   <p className="no-messages">No messages yet. Say hi! 👋</p>
                 )
               ) : (
-                <p className="no-room-selected">
-                  Choose a room or create a new one to start chatting.
-                </p>
+                <p className="no-room-selected">Choose a room or create a new one to start chatting.</p>
               )}
 
               {typingUser && currentRoom && (
-                <p className="typing-indicator">
-                  {typingUser === username ? "You" : typingUser} is typing…
-                </p>
+                <p className="typing-indicator">{typingUser === username ? "You" : typingUser} is typing…</p>
               )}
             </div>
 
@@ -521,20 +466,12 @@ function App() {
               <div className="users-list">
                 {currentRoom ? (
                   users.length ? (
-                    users.map((u, i) => (
-                      <div key={i} className="user-pill">
-                        {u}
-                      </div>
-                    ))
+                    users.map((u, i) => <div key={i} className="user-pill">{u}</div>)
                   ) : (
-                    <p className="empty-text small">
-                      No users in this room yet.
-                    </p>
+                    <p className="empty-text small">No users in this room yet.</p>
                   )
                 ) : (
-                  <p className="empty-text small">
-                    Join a room to see who&apos;s online.
-                  </p>
+                  <p className="empty-text small">Join a room to see who's online.</p>
                 )}
               </div>
             </aside>
@@ -545,18 +482,12 @@ function App() {
             <input
               type="text"
               className="chat-input"
-              placeholder={
-                currentRoom ? "Type here..." : "Join a room to start chatting"
-              }
+              placeholder={currentRoom ? "Type here..." : "Join a room to start chatting"}
               value={messageText}
               onChange={(e) => handleTyping(e.target.value)}
               disabled={!currentRoom}
             />
-            <button
-              type="submit"
-              className="primary-btn pill"
-              disabled={!currentRoom || !messageText.trim()}
-            >
+            <button type="submit" className="primary-btn pill" disabled={!currentRoom || !messageText.trim()}>
               Send
             </button>
           </form>
