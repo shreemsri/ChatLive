@@ -1,4 +1,4 @@
-// src/App.js
+// client/src/App.js
 import React, { useState, useEffect } from "react";
 import socket from "./socket";
 import "./App.css";
@@ -26,11 +26,13 @@ function App() {
   const [messages, setMessages] = useState([]);
   const [users, setUsers] = useState([]);
   const [messageText, setMessageText] = useState("");
+
+  // ==== THEME ====
   const [theme, setTheme] = useState(
     localStorage.getItem("theme") || "light"
   );
 
-  // ==== THEME EFFECT ====
+  // ================= THEME EFFECT =================
   useEffect(() => {
     if (theme === "dark") {
       document.body.classList.add("dark-mode");
@@ -44,20 +46,18 @@ function App() {
     setTheme((prev) => (prev === "light" ? "dark" : "light"));
   };
 
-  // ==== SOCKET LISTENERS ====
+  // ================= SOCKET LISTENERS =================
   useEffect(() => {
     socket.on("receive_message", (msg) => {
-      console.log("📩 receive_message:", msg);
       setMessages((prev) => [...prev, msg]);
     });
 
     socket.on("room_users", (usersList) => {
-      console.log("👥 room_users:", usersList);
       setUsers(usersList);
     });
 
     socket.on("rooms_updated", (roomList) => {
-      console.log("📂 rooms_updated:", roomList);
+      console.log("🧾 rooms_updated:", roomList);
       setRooms(roomList);
     });
 
@@ -68,10 +68,9 @@ function App() {
     };
   }, []);
 
-  // Fetch existing rooms
+  // Fetch existing rooms from server
   const fetchRooms = () => {
     socket.emit("get_rooms", (roomList) => {
-      console.log("📂 get_rooms callback:", roomList);
       setRooms(roomList);
     });
   };
@@ -80,7 +79,14 @@ function App() {
     fetchRooms();
   }, []);
 
-  // ==== AUTH HANDLERS ====
+  // When username changes (login), tell server
+  useEffect(() => {
+    if (username) {
+      socket.emit("set_username", username);
+    }
+  }, [username]);
+
+  // ================= AUTH HANDLERS =================
   const handleRegister = async () => {
     try {
       if (!email || !password) {
@@ -160,7 +166,7 @@ function App() {
     localStorage.removeItem("username");
   };
 
-  // ==== ROOM / MESSAGE HANDLERS ====
+  // ================= ROOM / MESSAGE HANDLERS =================
   const joinRoom = (roomName) => {
     if (!roomName) return;
 
@@ -185,19 +191,46 @@ function App() {
     e.preventDefault();
     if (!messageText.trim() || !currentRoom) return;
 
-    const payload = {
+    socket.emit("send_message", {
       roomName: currentRoom,
       text: messageText.trim(),
-    };
-
-    console.log("📤 sending message:", payload);
-
-    socket.emit("send_message", payload);
+    });
 
     setMessageText("");
   };
 
-  // ==== LOGIN SCREEN ====
+  const handleDeleteRoom = () => {
+    if (!currentRoom) {
+      alert("No room selected to delete.");
+      return;
+    }
+
+    const confirmDelete = window.confirm(
+      `Are you sure you want to delete "${currentRoom}" for everyone?`
+    );
+    if (!confirmDelete) return;
+
+    console.log("🗑 Sending delete_room for:", currentRoom);
+
+    socket.emit("delete_room", currentRoom, (success) => {
+      if (success) {
+        console.log("✅ Room deleted:", currentRoom);
+
+        // Remove from local list
+        setRooms((prev) => prev.filter((r) => r !== currentRoom));
+
+        // Clear UI
+        setCurrentRoom("");
+        setMessages([]);
+        setUsers([]);
+      } else {
+        console.log("❌ Room deletion failed");
+        alert("Failed to delete room.");
+      }
+    });
+  };
+
+  // ================= LOGIN SCREEN =================
   if (!username) {
     return (
       <div className="login-container">
@@ -234,13 +267,18 @@ function App() {
     );
   }
 
-  // ==== MAIN CHAT UI ====
+  // ================= MAIN CHAT UI =================
   return (
     <div className="app-container">
       {/* Sidebar */}
       <div className="sidebar">
         <div className="sidebar-header">
           <h2>Rooms</h2>
+
+          <button className="delete-room-btn" onClick={handleDeleteRoom}>
+            Delete Room
+          </button>
+
           <button className="logout-btn" onClick={handleLogout}>
             Logout
           </button>

@@ -2,12 +2,14 @@
 import { io } from "socket.io-client";
 
 // Hard-coded Render backend URL
-const socket = io("https://chatlive-1.onrender.com", {
-  transports: ["polling"],  // more reliable on Render free tier
+const BACKEND_URL = "https://chatlive-1.onrender.com";
+
+const socket = io(BACKEND_URL, {
+  transports: ["polling"], // disable websocket to avoid Render proxy issues
   upgrade: false,
 });
 
-console.log("🔌 Connecting to:", "https://chatlive-1.onrender.com");
+console.log("🔌 Connecting to:", BACKEND_URL);
 
 socket.on("connect", () => {
   console.log("✅ Socket connected:", socket.id);
