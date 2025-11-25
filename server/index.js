@@ -68,39 +68,41 @@ io.on("connection", (socket) => {
   });
 
   // Join / create room
-  socket.on("join_room", (roomName, callback) => {
-    if (!roomName) return;
-    console.log("➡️ join_room:", roomName, "from", socket.id);
+  // Join / create room
+socket.on("join_room", (roomName, callback) => {
+  if (!roomName) return;
+  console.log("➡️ join_room:", roomName, "from", socket.id);
 
-    if (!rooms[roomName]) {
-      rooms[roomName] = { users: {}, messages: [] };
+  const username = socket.username || "Anonymous";
+
+  // Create room if it doesn't exist
+  if (!rooms[roomName]) {
+    rooms[roomName] = { users: {}, messages: [] };
+  }
+
+  // ❗ Ensure user is removed from any other room first
+  for (const rName of Object.keys(rooms)) {
+    if (rooms[rName].users[username]) {
+      delete rooms[rName].users[username];
+      io.to(rName).emit("room_users", Object.keys(rooms[rName].users));
     }
+  }
 
-    // leave other rooms
-    for (const r of socket.rooms) {
-      if (r !== socket.id) {
-        socket.leave(r);
-        if (rooms[r] && rooms[r].users[socket.id]) {
-          delete rooms[r].users[socket.id];
-          io.to(r).emit("room_users", Object.values(rooms[r].users));
-        }
-      }
-    }
+  // Join the new room
+  socket.join(roomName);
+  rooms[roomName].users[username] = true; // store by username, not socket.id
 
-    socket.join(roomName);
-    rooms[roomName].users[socket.id] = socket.username || "Anonymous";
+  const data = {
+    messages: rooms[roomName].messages,
+    users: Object.keys(rooms[roomName].users), // array of usernames
+  };
 
-    const data = {
-      messages: rooms[roomName].messages,
-      users: Object.values(rooms[roomName].users),
-    };
+  if (typeof callback === "function") {
+    callback(data);
+  }
 
-    if (typeof callback === "function") {
-      callback(data);
-    }
-
-    io.to(roomName).emit("room_users", data.users);
-  });
+  io.to(roomName).emit("room_users", data.users);
+});
 
   // List rooms
   socket.on("get_rooms", (callback) => {
@@ -145,18 +147,21 @@ io.on("connection", (socket) => {
   });
 
   // Disconnect
-  socket.on("disconnect", () => {
-    console.log("❌ Disconnected:", socket.id);
-    for (const roomName of Object.keys(rooms)) {
-      if (rooms[roomName].users[socket.id]) {
-        delete rooms[roomName].users[socket.id];
-        io.to(roomName).emit(
-          "room_users",
-          Object.values(rooms[roomName].users)
-        );
-      }
+ socket.on("disconnect", () => {
+  console.log("❌ Disconnected:", socket.id);
+
+  const username = socket.username || "Anonymous";
+
+  for (const roomName of Object.keys(rooms)) {
+    if (rooms[roomName]?.users?.[username]) {
+      delete rooms[roomName].users[username];
+
+      io.to(roomName).emit(
+        "room_users",
+        Object.keys(rooms[roomName].users)
+      );
     }
-  });
+  }
 });
 
 const PORT = process.env.PORT || 5001;
