@@ -371,31 +371,48 @@ function App() {
           <section className="chat-content">
             <div className="messages-column">
               {currentRoom ? (
-                messages.length ? (
-                  messages.map((msg, index) => {
-                    const isMe =
-                      msg.username === username ||
-                      msg.username === "You" ||
-                      msg.username === auth.currentUser?.email;
-                    return (
-                      <div
-                        key={index}
-                        className={`message-row ${isMe ? "me" : "them"}`}
-                      >
-                        <div className="message-bubble">
-                          <div className="message-meta">
-                            <span className="message-user">
-                              {isMe ? "You" : msg.username}
-                            </span>
-                            {msg.time && (
-                              <span className="message-time">{msg.time}</span>
-                            )}
-                          </div>
-                          <div className="message-text">{msg.text}</div>
-                        </div>
-                      </div>
-                    );
-                  })
+  messages.length ? (
+    messages.map((msg, index) => {
+      const isMe =
+        msg.username === username ||
+        msg.username === "You" ||
+        msg.username === auth.currentUser?.email;
+
+      // ✅ Format time nicely in local timezone
+      const displayTime = msg.time
+        ? new Date(msg.time).toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          })
+        : "";
+
+      return (
+        <div
+          key={index}
+          className={`message-row ${isMe ? "me" : "them"}`}
+        >
+          <div className="message-bubble">
+            <div className="message-meta">
+              <span className="message-user">
+                {isMe ? "You" : msg.username || "Anonymous"}
+              </span>
+              {displayTime && (
+                <span className="message-time">{displayTime}</span>
+              )}
+            </div>
+            <div className="message-text">{msg.text}</div>
+          </div>
+        </div>
+      );
+    })
+  ) : (
+    <p className="no-messages">No messages yet. Say hi! 👋</p>
+  )
+) : (
+  <p className="no-room-selected">
+    Choose a room or create a new one to start chatting.
+  </p>
+)}
                 ) : (
                   <p className="empty-text">No messages yet. Say hi 👋</p>
                 )
@@ -403,7 +420,7 @@ function App() {
                 <p className="empty-text">
                   Join a room to start chatting with others.
                 </p>
-              )}
+              )
 
               {typingUser && currentRoom && (
                 <p className="typing-indicator">
