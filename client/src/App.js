@@ -405,17 +405,14 @@ function App() {
         </div>
       );
     })
-  
-
+  ) : (
+    <p className="no-messages">No messages yet. Say hi! 👋</p>
+  )
+) : (
+  <p className="no-room-selected">
+    Choose a room or create a new one to start chatting.
+  </p>
 )}
-                ) : (
-                  <p className="empty-text">No messages yet. Say hi 👋</p>
-                )
-              ) : (
-                <p className="empty-text">
-                  Join a room to start chatting with others.
-                </p>
-              )
 
               {typingUser && currentRoom && (
                 <p className="typing-indicator">
