@@ -1,7 +1,7 @@
 // src/App.js
 import React, { useState, useEffect } from "react";
-import { io } from "socket.io-client";
 import "./App.css";
+import socket from "./socket";
 
 import { auth, googleProvider } from "./firebase";
 import {
@@ -11,91 +11,124 @@ import {
   signOut,
 } from "firebase/auth";
 
-// 👇 change ONLY THIS for local/dev/prod
-const socket = io("https://chatlive-1.onrender.com", {
-  transports: ["websocket", "polling"],
-});
-
 function App() {
-  // ==== AUTH ====
-  const [username, setUsername] = useState(localStorage.getItem("username") || "");
+  // ===== AUTH STATE =====
+  const [username, setUsername] = useState(
+    localStorage.getItem("username") || ""
+  ); // we store email as username
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  // ==== CHAT STATE ====
+  // ===== CHAT STATE =====
   const [rooms, setRooms] = useState([]);
-  const [currentRoom, setCurrentRoom] = useState("");
   const [roomInput, setRoomInput] = useState("");
+  const [currentRoom, setCurrentRoom] = useState("");
   const [messages, setMessages] = useState([]);
   const [users, setUsers] = useState([]);
   const [messageText, setMessageText] = useState("");
-  const [typingUser, setTypingUser] = useState("");
-  const [typingTimeout, setTypingTimeout] = useState(null);
-  const [theme, setTheme] = useState(localStorage.getItem("theme") || "light");
 
-  // ==== THEME EFFECT ====
+  // ===== THEME =====
+  const [theme, setTheme] = useState(
+    localStorage.getItem("theme") || "light"
+  );
+
+  // Apply theme to body
   useEffect(() => {
-    if (theme === "dark") document.body.classList.add("dark-mode");
-    else document.body.classList.remove("dark-mode");
-
+    if (theme === "dark") {
+      document.body.classList.add("dark-mode");
+    } else {
+      document.body.classList.remove("dark-mode");
+    }
     localStorage.setItem("theme", theme);
   }, [theme]);
 
-  const toggleTheme = () => setTheme((prev) => (prev === "light" ? "dark" : "light"));
+  const toggleTheme = () => {
+    setTheme((prev) => (prev === "light" ? "dark" : "light"));
+  };
 
-  // ==== SOCKET LISTENERS ====
+  // When username changes, let server know
   useEffect(() => {
-    socket.on("receive_message", (msg) => {
+    if (username) {
+      socket.emit("set_username", username);
+    }
+  }, [username]);
+
+  // ===== SOCKET LISTENERS =====
+  useEffect(() => {
+    const handleReceiveMessage = (msg) => {
       setMessages((prev) => [...prev, msg]);
-    });
+    };
 
-    socket.on("room_users", (list) => setUsers(list));
+    const handleRoomUsers = (usersList) => {
+      setUsers(usersList || []);
+    };
 
-    socket.on("rooms_updated", (list) => setRooms(list));
+    const handleRoomsUpdated = (roomList) => {
+      setRooms(roomList || []);
+    };
 
-    socket.on("user_typing", (name) => setTypingUser(name));
-    socket.on("user_stop_typing", () => setTypingUser(""));
+    socket.on("receive_message", handleReceiveMessage);
+    socket.on("room_users", handleRoomUsers);
+    socket.on("rooms_updated", handleRoomsUpdated);
 
     return () => {
-      socket.off("receive_message");
-      socket.off("room_users");
-      socket.off("rooms_updated");
-      socket.off("user_typing");
-      socket.off("user_stop_typing");
+      socket.off("receive_message", handleReceiveMessage);
+      socket.off("room_users", handleRoomUsers);
+      socket.off("rooms_updated", handleRoomsUpdated);
     };
   }, []);
 
-  // === FETCH ROOMS FROM SERVER ===
+  // Fetch existing rooms list from server
+  const fetchRooms = () => {
+    socket.emit("get_rooms", (roomList) => {
+      setRooms(roomList || []);
+    });
+  };
+
   useEffect(() => {
-    socket.emit("get_rooms", (list) => setRooms(list));
+    fetchRooms();
   }, []);
 
-  // ==== AUTH HANDLERS ====
+  // ===== AUTH HANDLERS =====
   const handleRegister = async () => {
-    if (!email || !password) return alert("Enter details!");
-
     try {
-      const userCred = await createUserWithEmailAndPassword(auth, email, password);
-      const userEmail = userCred.user.email;
+      if (!email || !password) {
+        alert("Please enter email and password");
+        return;
+      }
+
+      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      const userEmail = cred.user.email;
+
       setUsername(userEmail);
-      socket.emit("set_username", userEmail);
       localStorage.setItem("username", userEmail);
+      socket.emit("set_username", userEmail);
+
+      alert("Registered & logged in as " + userEmail);
     } catch (err) {
-      alert(err.message);
+      console.error("Register error:", err);
+      alert(err.code + " - " + err.message);
     }
   };
 
   const handleLogin = async () => {
-    if (!email || !password) return alert("Enter details!");
-
     try {
-      const userCred = await signInWithEmailAndPassword(auth, email, password);
-      const userEmail = userCred.user.email;
+      if (!email || !password) {
+        alert("Please enter email and password");
+        return;
+      }
+
+      const cred = await signInWithEmailAndPassword(auth, email, password);
+      const userEmail = cred.user.email;
+
       setUsername(userEmail);
-      socket.emit("set_username", userEmail);
       localStorage.setItem("username", userEmail);
+      socket.emit("set_username", userEmail);
+
+      alert("Logged in as " + userEmail);
     } catch (err) {
-      alert(err.message);
+      console.error("Login error:", err);
+      alert(err.code + " - " + err.message);
     }
   };
 
@@ -103,92 +136,124 @@ function App() {
     try {
       const result = await signInWithPopup(auth, googleProvider);
       const userEmail = result.user.email;
+
       setUsername(userEmail);
-      socket.emit("set_username", userEmail);
       localStorage.setItem("username", userEmail);
+      socket.emit("set_username", userEmail);
+
+      alert("Logged in with Google as " + userEmail);
     } catch (err) {
-      alert(err.message);
+      console.error("Google login error:", err);
+      alert(err.code + " - " + err.message);
     }
   };
 
-  const handleLogout = () => {
-    signOut(auth);
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (e) {
+      console.error("Signout error:", e);
+    }
     setUsername("");
     setCurrentRoom("");
     setMessages([]);
+    setUsers([]);
     localStorage.removeItem("username");
   };
 
-  // ==== ROOM LOGIC ====
-  const joinRoom = (room) => {
-    if (!room) return;
+  // ===== ROOM / MESSAGE HANDLERS =====
+  const joinRoom = (roomName) => {
+    if (!roomName) return;
 
-    socket.emit("join_room", room, ({ messages, users }) => {
-      setCurrentRoom(room);
-      setMessages(messages);
-      setUsers(users);
+    console.log("➡️ joinRoom:", roomName);
+    socket.emit("join_room", roomName, ({ messages, users }) => {
+      console.log("✅ join_room callback:", { messages, users });
+      setCurrentRoom(roomName);
+      setMessages(messages || []);
+      setUsers(users || []);
+      fetchRooms();
     });
   };
 
-  const createOrJoinRoom = () => {
-    if (!roomInput.trim()) return;
-    joinRoom(roomInput.trim());
+  const handleCreateOrJoinRoom = () => {
+    const name = roomInput.trim();
+    if (!name) return;
+    joinRoom(name);
     setRoomInput("");
   };
 
-  const deleteRoom = (room) => {
-    if (!window.confirm(`Delete room "${room}"?`)) return;
+  const handleSendMessage = (e) => {
+    e.preventDefault();
+    if (!messageText.trim() || !currentRoom) return;
 
-    socket.emit("delete_room", room, (success) => {
+    socket.emit("send_message", {
+      roomName: currentRoom,
+      text: messageText.trim(),
+    });
+
+    setMessageText("");
+  };
+
+  const handleDeleteRoom = () => {
+    if (!currentRoom) return;
+
+    const confirmDelete = window.confirm(
+      `Are you sure you want to delete "${currentRoom}" for everyone?`
+    );
+    if (!confirmDelete) return;
+
+    console.log("🗑 Sending delete_room for:", currentRoom);
+
+    socket.emit("delete_room", currentRoom, (success) => {
       if (success) {
-        if (currentRoom === room) {
-          setCurrentRoom("");
-          setMessages([]);
-        }
-        socket.emit("get_rooms", (list) => setRooms(list));
+        console.log("✅ Room deleted on server");
+        setRooms((prev) => prev.filter((r) => r !== currentRoom));
+        setCurrentRoom("");
+        setMessages([]);
+        setUsers([]);
+      } else {
+        console.log("❌ Room deletion failed");
+        alert("Failed to delete room.");
       }
     });
   };
 
-  // ==== MESSAGES ====
-  const sendMessage = (e) => {
-    e.preventDefault();
-    if (!messageText.trim() || !currentRoom) return;
-
-    socket.emit("send_message", { roomName: currentRoom, text: messageText });
-    socket.emit("stop_typing", currentRoom);
-    setMessageText("");
-  };
-
-  const typingHandler = (value) => {
-    setMessageText(value);
-    socket.emit("typing", currentRoom);
-
-    if (typingTimeout) clearTimeout(typingTimeout);
-
-    const timeout = setTimeout(() => {
-      socket.emit("stop_typing", currentRoom);
-    }, 600);
-
-    setTypingTimeout(timeout);
-  };
-
-  // ==== LOGIN PAGE ====
+  // ===== LOGIN SCREEN =====
   if (!username) {
     return (
-      <div className="login-container">
-        <div className="login-card">
-          <h2>Login</h2>
+      <div className="auth-wrapper">
+        <div className="auth-card">
+          <h1 className="app-title">ChatLive</h1>
+          <p className="app-subtitle">Sign in to start chatting</p>
 
-          <input placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
-          <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          <input
+            className="auth-input"
+            type="email"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
 
-          <button onClick={handleLogin}>Login</button>
-          <button onClick={handleRegister}>Register</button>
+          <input
+            className="auth-input"
+            type="password"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
 
-          <p>OR</p>
+          <button className="auth-btn primary" onClick={handleLogin}>
+            Login
+          </button>
+          <button className="auth-btn secondary" onClick={handleRegister}>
+            Register
+          </button>
 
-          <button style={{ background: "#4285f4", color: "white" }} onClick={handleGoogleLogin}>
+          <div className="auth-separator">
+            <span>OR</span>
+          </div>
+
+          <button className="auth-btn google" onClick={handleGoogleLogin}>
             Sign in with Google
           </button>
         </div>
@@ -196,84 +261,165 @@ function App() {
     );
   }
 
-  // ==== MAIN CHAT UI ====
+  // ===== MAIN CHAT UI =====
   return (
-    <div className="app-container">
-      <div className="chat-shell">
-        {/* SIDEBAR */}
-        <div className="sidebar">
-          <div className="sidebar-header">
-            <h2>Rooms</h2>
-            <button className="logout-btn" onClick={handleLogout}>Logout</button>
-          </div>
-
-          <div className="room-create">
-            <input placeholder="Room name..." value={roomInput} onChange={(e) => setRoomInput(e.target.value)} />
-            <button onClick={createOrJoinRoom}>Create / Join</button>
-          </div>
-
-          <div className="room-list">
-            {rooms.map((room) => (
-              <div key={room} className={`room-item ${room === currentRoom ? "active-room" : ""}`} onClick={() => joinRoom(room)}>
-                {room}
-                <button className="delete-room-btn" onClick={(e) => { e.stopPropagation(); deleteRoom(room); }}>✖</button>
-              </div>
-            ))}
-          </div>
+    <div className="app-shell">
+      {/* Sidebar */}
+      <aside className="sidebar">
+        <div className="sidebar-top">
+          <div className="sidebar-title">Rooms</div>
+          <button className="logout-pill" onClick={handleLogout}>
+            Logout
+          </button>
         </div>
 
-        {/* CHAT */}
-        <div className="chat-section">
-          <div className="chat-header">
-            <h2>{currentRoom || "No Room Selected"}</h2>
-
-            <div className="chat-header-right">
-              <button className="theme-toggle" onClick={toggleTheme}>
-                {theme === "light" ? "🌙" : "☀️"}
-              </button>
-              <span className="username-badge">Hi, {username}</span>
-            </div>
-          </div>
-
-          <div className="chat-main">
-            <div className="messages-container">
-              {messages.map((msg, i) => {
-  let displayTime = msg.time;
-
-  // If it's a number (timestamp from server), format it
-  if (typeof msg.time === "number") {
-    displayTime = new Date(msg.time).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  }
-
-  return (
-    <div key={i} className="message-row ...">
-      {/* your other message UI */}
-      <span className="msg-time">{displayTime}</span>
-    </div>
-  );
-})}
-              
-
-              {typingUser && <p className="typing-indicator">{typingUser} is typing…</p>}
-            </div>
-
-            <div className="users-container">
-              <h3>Users</h3>
-              {users.map((u, i) => (
-                <div key={i} className="user-item">{u}</div>
-              ))}
-            </div>
-          </div>
-
-          <form className="message-input-area" onSubmit={sendMessage}>
-            <input value={messageText} onChange={(e) => typingHandler(e.target.value)} placeholder="Type here..." disabled={!currentRoom} />
-            <button disabled={!currentRoom}>Send</button>
-          </form>
+        <div className="room-input-card">
+          <input
+            className="room-input"
+            type="text"
+            placeholder="Room name..."
+            value={roomInput}
+            onChange={(e) => setRoomInput(e.target.value)}
+          />
+          <button className="room-create-btn" onClick={handleCreateOrJoinRoom}>
+            Create / Join
+          </button>
         </div>
-      </div>
+
+        <div className="room-list">
+          {rooms.length === 0 && (
+            <p className="no-rooms">No rooms yet. Create one!</p>
+          )}
+          {rooms.map((room) => (
+            <button
+              key={room}
+              className={`room-pill ${
+                currentRoom === room ? "room-pill-active" : ""
+              }`}
+              onClick={() => joinRoom(room)}
+            >
+              <span className="room-status-dot" />
+              <span className="room-name">{room}</span>
+              {currentRoom === room && (
+                <span
+                  className="room-delete-x"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteRoom();
+                  }}
+                >
+                  ✕
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      </aside>
+
+      {/* Main content */}
+      <main className="chat-layout">
+        {/* Header */}
+        <header className="chat-header">
+          <div className="chat-room-name">
+            {currentRoom || "No Room Selected"}
+          </div>
+
+          <div className="chat-header-right">
+            <button className="theme-toggle-btn" onClick={toggleTheme}>
+              {theme === "light" ? "🌙" : "☀️"}
+            </button>
+
+            <div className="user-pill">
+              <span className="user-pill-label">Hi,</span>
+              <span className="user-pill-email">{username}</span>
+            </div>
+          </div>
+        </header>
+
+        <section className="chat-main-section">
+          {/* Messages */}
+          <div className="messages-panel">
+            <div className="messages-scroll">
+              {currentRoom ? (
+                messages.length ? (
+                  messages.map((msg, i) => {
+                    const isMe = msg.username === username;
+                    return (
+                      <div
+                        key={i}
+                        className={`message-row ${isMe ? "me" : "other"}`}
+                      >
+                        <div className="message-bubble">
+                          <div className="message-text">{msg.text}</div>
+                          <div className="message-meta">
+                            <span className="message-user">
+                              {isMe ? "You" : msg.username || "Anonymous"}
+                            </span>
+                            <span className="message-time">{msg.time}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <p className="placeholder-text">
+                    No messages yet. Say hi! 👋
+                  </p>
+                )
+              ) : (
+                <p className="placeholder-text">
+                  Choose a room or create a new one to start chatting.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Users */}
+          <aside className="users-panel">
+            <h3 className="users-title">Users</h3>
+            <div className="users-list">
+              {currentRoom ? (
+                users.length ? (
+                  users.map((u, i) => (
+                    <div key={i} className="user-tag">
+                      {u}
+                    </div>
+                  ))
+                ) : (
+                  <p className="placeholder-text small">
+                    No users in this room.
+                  </p>
+                )
+              ) : (
+                <p className="placeholder-text small">
+                  Join a room to see users.
+                </p>
+              )}
+            </div>
+          </aside>
+        </section>
+
+        {/* Message input */}
+        <form className="chat-input-bar" onSubmit={handleSendMessage}>
+          <input
+            className="chat-input"
+            type="text"
+            placeholder={
+              currentRoom ? "Type here..." : "Join a room to start chatting"
+            }
+            value={messageText}
+            onChange={(e) => setMessageText(e.target.value)}
+            disabled={!currentRoom}
+          />
+          <button
+            className="chat-send-btn"
+            type="submit"
+            disabled={!currentRoom || !messageText.trim()}
+          >
+            Send
+          </button>
+        </form>
+      </main>
     </div>
   );
 }
