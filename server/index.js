@@ -93,9 +93,9 @@ io.on("connection", (socket) => {
     if (!text || !text.trim()) return;
 
     const msg = {
-      username: socket.username || "Anonymous",
+      username: socket.username ,
       text: text.trim(),
-      time: new Date().toLocaleTimeString(),
+      time: Date.now(),
     };
 
     rooms[roomName].messages.push(msg);

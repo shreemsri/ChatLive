@@ -238,17 +238,24 @@ function App() {
           <div className="chat-main">
             <div className="messages-container">
               {messages.map((msg, i) => {
-                const mine = msg.username === username;
-                return (
-                  <div key={i} className={`message ${mine ? "my-message" : "other-message"}`}>
-                    <div className="message-meta">
-                      <span className="message-user">{mine ? "You" : msg.username}</span>
-                      <span className="message-time">{msg.time}</span>
-                    </div>
-                    <div className="message-text">{msg.text}</div>
-                  </div>
-                );
-              })}
+  let displayTime = msg.time;
+
+  // If it's a number (timestamp from server), format it
+  if (typeof msg.time === "number") {
+    displayTime = new Date(msg.time).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  return (
+    <div key={i} className="message-row ...">
+      {/* your other message UI */}
+      <span className="msg-time">{displayTime}</span>
+    </div>
+  );
+})}
+              
 
               {typingUser && <p className="typing-indicator">{typingUser} is typing…</p>}
             </div>
