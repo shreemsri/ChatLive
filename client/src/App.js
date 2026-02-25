@@ -19,7 +19,7 @@ function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  // room passwords
+  // ================= ROOM PASSWORDS =================
   const [roomPasswords, setRoomPasswords] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem("roomPasswords")) || {};
@@ -33,7 +33,7 @@ function App() {
   const [rooms, setRooms] = useState([]);
   const [roomInput, setRoomInput] = useState("");
   const [messages, setMessages] = useState([]);
-  const [users, setUsers] = useState([]); // <-- backend sends objects
+  const [users, setUsers] = useState([]);
   const [messageText, setMessageText] = useState("");
 
   const [typingUser, setTypingUser] = useState("");
@@ -41,7 +41,10 @@ function App() {
 
   const [theme, setTheme] = useState(localStorage.getItem("theme") || "light");
 
-  // ================= PASSWORD SAVE =================
+  // Which message has reaction picker open
+  const [openReactionPicker, setOpenReactionPicker] = useState(null);
+
+  // ================= PERSIST PASSWORDS =================
   useEffect(() => {
     localStorage.setItem("roomPasswords", JSON.stringify(roomPasswords));
   }, [roomPasswords]);
@@ -72,11 +75,16 @@ function App() {
 
   // ================= SOCKET LISTENERS =================
   useEffect(() => {
-    const onReceive = (msg) => setMessages((prev) => [...prev, msg]);
-    const onRoomUsers = (u) => setUsers(u || []); // <-- u = [{displayName,email}]
-    const onTyping = (userObj) =>
-      setTypingUser(userObj?.displayName || userObj?.email);
+    const onReceive = (msg) => {
+      setMessages((prev) => [...prev, msg]);
+    };
+
+    const onRoomUsers = (u) => setUsers(u || []);
+
+    const onTyping = (name) => setTypingUser(name);
+
     const onStopTyping = () => setTypingUser("");
+
     const onRooms = (list) => setRooms(list || []);
 
     const onReactionUpdate = ({ messageId, reactions }) => {
@@ -104,30 +112,32 @@ function App() {
     };
   }, []);
 
-  // ================= LOAD ROOMS =================
+  // Load rooms on load
   useEffect(() => {
     socket.emit("get_rooms", (list) => setRooms(list || []));
   }, []);
 
-  // ================= TIME FORMAT =================
+  // ================= UTILS =================
   const formatTime = (raw) => {
     if (!raw) return "";
     const d = new Date(raw);
+    if (isNaN(d)) return "";
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
   // ================= AUTH HELPERS =================
-  const loginSuccess = (email, name) => {
+  const loginSuccess = (email, dName) => {
     setUsername(email);
-    setDisplayName(name);
+    setDisplayName(dName);
     localStorage.setItem("username", email);
-    localStorage.setItem("displayName", name);
+    localStorage.setItem("displayName", dName);
 
-    socket.emit("set_username", { email, displayName: name });
+    socket.emit("set_username", { email, displayName: dName });
   };
 
   const handleRegister = async () => {
     if (!email || !password) return alert("Enter email + password");
+
     try {
       const u = await createUserWithEmailAndPassword(auth, email, password);
       const mail = u.user.email;
@@ -139,6 +149,7 @@ function App() {
 
   const handleLogin = async () => {
     if (!email || !password) return alert("Enter email + password");
+
     try {
       const u = await signInWithEmailAndPassword(auth, email, password);
       const mail = u.user.email;
@@ -161,51 +172,59 @@ function App() {
 
   const handleLogout = async () => {
     await signOut(auth);
+
     setUsername("");
     setDisplayName("");
     setCurrentRoom("");
     setMessages([]);
     setUsers([]);
+
     localStorage.removeItem("username");
     localStorage.removeItem("displayName");
   };
 
-  // ================= ROOM JOIN =================
+  // ================= ROOMS =================
   const askForPassword = (roomName) =>
     window.prompt(`Enter password for "${roomName}"`);
 
-  const joinRoom = (roomName, force = false) => {
+  const joinRoom = (roomName, forceAsk = false) => {
     let pwd = roomPasswords[roomName];
 
-    if (!pwd || force) {
+    if (!pwd || forceAsk) {
       const entered = askForPassword(roomName);
       if (!entered) return;
       pwd = entered;
+
       setRoomPasswords((prev) => ({ ...prev, [roomName]: pwd }));
     }
 
     socket.emit("join_room", { roomName, password: pwd }, (data) => {
-      if (!data.ok) return alert(data.message);
+      if (!data.ok) {
+        alert(data.message);
+        return;
+      }
 
       setCurrentRoom(roomName);
       setMessages(data.messages || []);
-      setUsers(data.users || []); // <-- objects
+      setUsers(data.users || []);
+      setOpenReactionPicker(null);
     });
   };
 
-  // ================= DELETE ROOM =================
-  const handleDeleteRoom = (roomName) => {
-    const pwd = window.prompt(`Enter password to delete "${roomName}"`);
+  const handleDeleteRoom = (r) => {
+    const pwd = window.prompt(`Password to delete "${r}"`);
     if (!pwd) return;
 
-    socket.emit("delete_room", { roomName, password: pwd }, (res) => {
+    socket.emit("delete_room", { roomName: r, password: pwd }, (res) => {
       if (!res.ok) return alert(res.message);
-      if (currentRoom === roomName) {
+
+      if (currentRoom === r) {
         setCurrentRoom("");
         setMessages([]);
         setUsers([]);
       }
-      setRooms((old) => old.filter((r) => r !== roomName));
+
+      setRooms((old) => old.filter((x) => x !== r));
     });
   };
 
@@ -215,19 +234,18 @@ function App() {
 
     if (!currentRoom) return;
 
-    socket.emit("typing", { roomName: currentRoom });
+    socket.emit("typing", displayName);
 
     clearTimeout(typingTimeoutRef.current);
     typingTimeoutRef.current = setTimeout(() => {
-      socket.emit("stop_typing", { roomName: currentRoom });
-    }, 800);
+      socket.emit("stop_typing");
+    }, 700);
   };
 
   // ================= SEND MESSAGE =================
   const handleSendMessage = (e) => {
     e.preventDefault();
-
-    if (!currentRoom || !messageText.trim()) return;
+    if (!messageText.trim() || !currentRoom) return;
 
     socket.emit("send_message", {
       roomName: currentRoom,
@@ -235,6 +253,7 @@ function App() {
     });
 
     setMessageText("");
+    setOpenReactionPicker(null);
   };
 
   // ================= REACTIONS =================
@@ -242,18 +261,28 @@ function App() {
     socket.emit("add_reaction", { messageId: id, reaction: emoji });
   };
 
-  // ================= LOGIN UI =================
+  // ================= LOGIN SCREEN =================
   if (!username || !displayName) {
     return (
       <div className="login-wrapper">
         <div className="login-card glass">
           <h1 className="login-title">ChatLive</h1>
 
-          <input type="email" className="login-input" placeholder="Email"
-            value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input
+            type="email"
+            className="login-input"
+            placeholder="Email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
 
-          <input type="password" className="login-input" placeholder="Password"
-            value={password} onChange={(e) => setPassword(e.target.value)} />
+          <input
+            type="password"
+            className="login-input"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
 
           <button className="primary-btn" onClick={handleLogin}>Login</button>
           <button className="ghost-btn" onClick={handleRegister}>Register</button>
@@ -272,7 +301,7 @@ function App() {
   return (
     <div className={`app-shell ${theme === "dark" ? "dark-theme" : ""}`}>
       <div className="app-inner">
-
+        
         {/* SIDEBAR */}
         <aside className="sidebar glass">
           <div className="sidebar-header">
@@ -288,6 +317,7 @@ function App() {
               value={roomInput}
               onChange={(e) => setRoomInput(e.target.value)}
             />
+
             <button
               className="primary-btn small"
               onClick={() => {
@@ -301,15 +331,15 @@ function App() {
           </div>
 
           <div className="sidebar-rooms-list">
-            {rooms.map((r) => (
+            {rooms.map((room) => (
               <div
-                key={r}
-                className={`room-pill ${currentRoom === r ? "room-pill-active" : ""}`}
+                key={room}
+                className={`room-pill ${currentRoom === room ? "room-pill-active" : ""}`}
               >
-                <button className="room-pill-main" onClick={() => joinRoom(r)}>
-                  {r}
+                <button className="room-pill-main" onClick={() => joinRoom(room)}>
+                  {room}
                 </button>
-                <button className="room-pill-delete" onClick={() => handleDeleteRoom(r)}>
+                <button className="room-pill-delete" onClick={() => handleDeleteRoom(room)}>
                   ✕
                 </button>
               </div>
@@ -324,7 +354,8 @@ function App() {
             <h2>{currentRoom || "No Room Selected"}</h2>
 
             <div className="chat-header-right">
-              <button className="theme-toggle"
+              <button
+                className="theme-toggle"
                 onClick={() => setTheme(theme === "light" ? "dark" : "light")}
               >
                 {theme === "light" ? "🌙" : "☀️"}
@@ -333,6 +364,7 @@ function App() {
             </div>
           </header>
 
+          {/* CHAT CONTENT */}
           <section className="chat-content">
 
             {/* MESSAGES */}
@@ -346,47 +378,41 @@ function App() {
                       <div className="message-bubble">
 
                         <div className="message-meta">
-                          <span className="message-user">{isMe ? "You" : msg.username}</span>
+                          <span className="message-user">
+                            {isMe ? "You" : msg.username}
+                          </span>
                           <span className="message-time">{formatTime(msg.time)}</span>
                         </div>
 
                         <div className="message-text">{msg.text}</div>
 
+                        {/* REACTION COUNTS */}
                         <div className="reactions-bar">
                           {msg.reactions &&
-                            Object.keys(msg.reactions).map((r) => (
-                              <span key={r} className="reaction-count">
-                                {r} {msg.reactions[r].length}
+                            Object.keys(msg.reactions).map((emoji) => (
+                              <span key={emoji} className="reaction-count">
+                                {emoji} {msg.reactions[emoji].length}
                               </span>
                             ))}
                         </div>
 
+                        {/* REACTION PICKER BUTTON */}
                         <button
                           className="reaction-trigger"
                           onClick={() =>
-                            setMessages((prev) =>
-                              prev.map((m) =>
-                                m._id === msg._id
-                                  ? { ...m, showPicker: !m.showPicker }
-                                  : m
-                              )
+                            setOpenReactionPicker(
+                              openReactionPicker === msg._id ? null : msg._id
                             )
                           }
                         >
                           😀
                         </button>
 
-                        {msg.showPicker && (
+                        {openReactionPicker === msg._id && (
                           <ReactionPicker
                             onSelect={(emoji) => {
                               addReaction(msg._id, emoji);
-                              setMessages((prev) =>
-                                prev.map((m) =>
-                                  m._id === msg._id
-                                    ? { ...m, showPicker: false }
-                                    : m
-                                )
-                              );
+                              setOpenReactionPicker(null);
                             }}
                           />
                         )}
@@ -399,33 +425,29 @@ function App() {
                 <p className="no-room-selected">Join a room first.</p>
               )}
 
-              {typingUser && <p className="typing-indicator">{typingUser} is typing…</p>}
+              {typingUser && (
+                <p className="typing-indicator">{typingUser} is typing…</p>
+              )}
+
             </div>
 
             {/* USERS */}
             <aside className="users-column">
               <h3>USERS</h3>
-
-              {users.length > 0 ? (
-                users.map((u, i) => (
-                  <div key={i} className="user-pill">
-                    {u.displayName || u.email || "Unknown"}
-                  </div>
-                ))
-              ) : (
-                <p className="empty-text small">No users in this room.</p>
-              )}
+              {users.map((u, i) => (
+                <div key={i} className="user-pill">{u}</div>
+              ))}
             </aside>
 
           </section>
 
-          {/* INPUT */}
+          {/* INPUT BAR */}
           <form className="chat-input-row" onSubmit={handleSendMessage}>
             <input
               type="text"
               className="chat-input"
-              placeholder="Type here..."
               value={messageText}
+              placeholder="Type here..."
               onChange={(e) => handleTyping(e.target.value)}
               disabled={!currentRoom}
             />
@@ -436,6 +458,7 @@ function App() {
           </form>
 
         </main>
+
       </div>
     </div>
   );
