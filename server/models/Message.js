@@ -1,10 +1,18 @@
 const mongoose = require("mongoose");
 
-const MessageSchema = new mongoose.Schema({
-  roomName: { type: String, required: true },
-  username: { type: String, required: true },
-  text: { type: String, required: true },
-  time: { type: Date, default: Date.now },
-});
+const MessageSchema = new mongoose.Schema(
+  {
+    username: { type: String, required: true },
+    text: { type: String, required: true },
+    roomName: { type: String, required: true },
+
+    // NEW:
+    reactions: {
+      type: Object,
+      default: {}, // { "👍": ["userA", "userB"], "❤️": [...] }
+    },
+  },
+  { timestamps: true }
+);
 
 module.exports = mongoose.model("Message", MessageSchema);
