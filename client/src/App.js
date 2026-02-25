@@ -12,13 +12,19 @@ import {
 } from "firebase/auth";
 
 function App() {
-  // ---------- AUTH ----------
+  // ==============================================================
+  //                      AUTH STATE
+  // ==============================================================
+
   const [username, setUsername] = useState(localStorage.getItem("username") || "");
   const [displayName, setDisplayName] = useState(localStorage.getItem("displayName") || "");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  // store passwords
+  // ==============================================================
+  //                      ROOM STATE
+  // ==============================================================
+
   const [roomPasswords, setRoomPasswords] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem("roomPasswords")) || {};
@@ -27,25 +33,35 @@ function App() {
     }
   });
 
-  // ---------- CHAT ----------
   const [currentRoom, setCurrentRoom] = useState("");
   const [rooms, setRooms] = useState([]);
   const [roomInput, setRoomInput] = useState("");
+
+  // ==============================================================
+  //                      CHAT STATE
+  // ==============================================================
+
   const [messages, setMessages] = useState([]);
   const [users, setUsers] = useState([]);
   const [messageText, setMessageText] = useState("");
-
   const [typingUser, setTypingUser] = useState("");
+
   const typingTimeoutRef = useRef(null);
 
   const [theme, setTheme] = useState(localStorage.getItem("theme") || "light");
 
-  // ---------- PERSIST ----------
+  // ==============================================================
+  //                      PERSIST
+  // ==============================================================
+
   useEffect(() => {
     localStorage.setItem("roomPasswords", JSON.stringify(roomPasswords));
   }, [roomPasswords]);
 
-  // ---------- SOCKET RECONNECT ----------
+  // ==============================================================
+  //                      SOCKET RE-CONNECT
+  // ==============================================================
+
   useEffect(() => {
     const onConnect = () => {
       if (username && displayName) {
@@ -53,6 +69,7 @@ function App() {
         socket.emit("get_rooms", (list) => setRooms(list || []));
       }
     };
+
     socket.on("connect", onConnect);
 
     if (username && displayName) {
@@ -62,22 +79,31 @@ function App() {
     return () => socket.off("connect", onConnect);
   }, [username, displayName]);
 
-  // ---------- THEME ----------
+  // ==============================================================
+  //                      THEME HANDLER
+  // ==============================================================
+
   useEffect(() => {
     document.body.classList.toggle("dark-mode", theme === "dark");
     localStorage.setItem("theme", theme);
   }, [theme]);
 
-  // ---------- SOCKET LISTENERS ----------
+  // ==============================================================
+  //                      SOCKET LISTENERS
+  // ==============================================================
+
   useEffect(() => {
     const onReceive = (msg) => setMessages((prev) => [...prev, msg]);
     const onRoomUsers = (u) => setUsers(u || []);
-    const onTyping = (n) => setTypingUser(n);
+    const onTyping = (u) => setTypingUser(u);
     const onStopTyping = () => setTypingUser("");
     const onRooms = (list) => setRooms(list || []);
+
     const onReactionUpdate = ({ messageId, reactions }) => {
       setMessages((prev) =>
-        prev.map((m) => (m.id === messageId ? { ...m, reactions } : m))
+        prev.map((m) =>
+          m._id === messageId ? { ...m, reactions } : m
+        )
       );
     };
 
@@ -98,12 +124,15 @@ function App() {
     };
   }, []);
 
-  // rooms fetch on load
+  // Fetch rooms once
   useEffect(() => {
     socket.emit("get_rooms", (list) => setRooms(list || []));
   }, []);
 
-  // ---------- TIME FORMATTER ----------
+  // ==============================================================
+  //                      FORMATTER
+  // ==============================================================
+
   const formatTime = (raw) => {
     if (!raw) return "";
     const d = new Date(raw);
@@ -112,59 +141,45 @@ function App() {
   };
 
   // ==============================================================
-  //                      AUTH HANDLERS
+  //                      AUTH HELPERS
   // ==============================================================
 
-  const loginSuccess = (email, displayName) => {
+  const loginSuccess = (email, name) => {
     setUsername(email);
-    setDisplayName(displayName);
-    localStorage.setItem("username", email);
-    localStorage.setItem("displayName", displayName);
+    setDisplayName(name);
 
-    socket.emit("set_username", { email, displayName });
+    localStorage.setItem("username", email);
+    localStorage.setItem("displayName", name);
+
+    socket.emit("set_username", { email, displayName: name });
   };
 
   const handleRegister = async () => {
     if (!email || !password) return alert("Enter email + password");
 
-    try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const emailUser = userCredential.user.email;
-      const name = emailUser.split("@")[0];
-      loginSuccess(emailUser, name);
-      alert("Registered & logged in");
-    } catch (err) {
-      alert(err.message);
-      console.error(err);
-    }
+    const res = await createUserWithEmailAndPassword(auth, email, password);
+    const emailUser = res.user.email;
+    const name = emailUser.split("@")[0];
+
+    loginSuccess(emailUser, name);
   };
 
   const handleLogin = async () => {
     if (!email || !password) return alert("Enter email + password");
 
-    try {
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const emailUser = userCredential.user.email;
-      const name = emailUser.split("@")[0];
-      loginSuccess(emailUser, name);
-      alert("Logged in");
-    } catch (err) {
-      alert(err.message);
-      console.error(err);
-    }
+    const res = await signInWithEmailAndPassword(auth, email, password);
+    const emailUser = res.user.email;
+    const name = emailUser.split("@")[0];
+
+    loginSuccess(emailUser, name);
   };
 
   const handleGoogleLogin = async () => {
-    try {
-      const result = await signInWithPopup(auth, googleProvider);
-      const emailUser = result.user.email;
-      const name = result.user.displayName || emailUser.split("@")[0];
-      loginSuccess(emailUser, name);
-      alert("Logged in with Google");
-    } catch (err) {
-      alert(err.message);
-      console.error(err);
-    }
+    const result = await signInWithPopup(auth, googleProvider);
+    const emailUser = result.user.email;
+    const name = result.user.displayName || emailUser.split("@")[0];
+
+    loginSuccess(emailUser, name);
   };
 
   const handleLogout = async () => {
@@ -172,54 +187,54 @@ function App() {
 
     setUsername("");
     setDisplayName("");
-    setCurrentRoom("");
     setMessages([]);
     setUsers([]);
+    setCurrentRoom("");
 
     localStorage.removeItem("username");
     localStorage.removeItem("displayName");
   };
 
   // ==============================================================
-  //                      ROOM ACTIONS
+  //                      ROOM HANDLERS
   // ==============================================================
 
-  const askForPassword = (roomName) =>
-    window.prompt(`Enter password for "${roomName}"`);
+  const askPassword = (room) => prompt(`Enter password for "${room}"`);
 
-  const joinRoom = (roomName, forceAsk = false) => {
+  const joinRoom = (roomName, ask = false) => {
     if (!roomName) return;
 
     let pwd = roomPasswords[roomName];
 
-    if (!pwd || forceAsk) {
-      const entered = askForPassword(roomName);
+    if (!pwd || ask) {
+      const entered = askPassword(roomName);
       if (!entered) return;
       pwd = entered;
       setRoomPasswords((prev) => ({ ...prev, [roomName]: pwd }));
     }
 
-    socket.emit("join_room", { roomName, password: pwd }, (data = {}) => {
-      if (!data.ok) {
-        alert(data.message || "Cannot join room");
-        if (data.message?.toLowerCase().includes("wrong")) {
+    socket.emit("join_room", { roomName, password: pwd }, (res = {}) => {
+      if (!res.ok) {
+        alert(res.message);
+
+        if (res.message.toLowerCase().includes("wrong")) {
           setRoomPasswords((p) => {
-            const c = { ...p };
-            delete c[roomName];
-            return c;
+            const x = { ...p };
+            delete x[roomName];
+            return x;
           });
         }
         return;
       }
 
       setCurrentRoom(roomName);
-      setMessages(data.messages || []);
-      setUsers(data.users || []);
+      setMessages(res.messages || []);
+      setUsers(res.users || []);
     });
   };
 
   const handleDeleteRoom = (roomName) => {
-    const pwd = window.prompt(`Enter password to delete "${roomName}"`);
+    const pwd = prompt(`Password to delete "${roomName}"`);
     if (!pwd) return;
 
     socket.emit("delete_room", { roomName, password: pwd }, (res) => {
@@ -236,7 +251,7 @@ function App() {
   };
 
   // ==============================================================
-  //                      SEND + TYPING
+  //                      MESSAGE + TYPING
   // ==============================================================
 
   const handleTyping = (value) => {
@@ -252,7 +267,7 @@ function App() {
     }, 800);
   };
 
-  const handleSendMessage = (e) => {
+  const sendMessage = (e) => {
     e.preventDefault();
 
     if (!messageText.trim() || !currentRoom) return;
@@ -269,12 +284,12 @@ function App() {
   //                      REACTIONS
   // ==============================================================
 
-  const addReaction = (messageId, reaction) => {
-    socket.emit("add_reaction", { messageId, reaction });
+  const addReaction = (id, reaction) => {
+    socket.emit("add_reaction", { messageId: id, reaction });
   };
 
   // ==============================================================
-  //                      LOGIN PAGE
+  //                      LOGIN UI
   // ==============================================================
 
   if (!username || !displayName) {
@@ -284,18 +299,16 @@ function App() {
           <h1 className="login-title">ChatLive</h1>
 
           <input
-            type="email"
-            placeholder="Email"
             className="login-input"
-            value={email}
+            placeholder="Email"
+            type="email"
             onChange={(e) => setEmail(e.target.value)}
           />
 
           <input
-            type="password"
-            placeholder="Password"
             className="login-input"
-            value={password}
+            placeholder="Password"
+            type="password"
             onChange={(e) => setPassword(e.target.value)}
           />
 
@@ -329,7 +342,6 @@ function App() {
 
           <div className="sidebar-room-input">
             <input
-              type="text"
               className="room-input"
               placeholder="Room name..."
               value={roomInput}
@@ -349,12 +361,16 @@ function App() {
           </div>
 
           <div className="sidebar-rooms-list">
-            {rooms.map((r) => (
-              <div key={r} className={`room-pill ${currentRoom === r ? "room-pill-active" : ""}`}>
-                <button className="room-pill-main" onClick={() => joinRoom(r)}>
-                  {r}
+            {rooms.map((room) => (
+              <div
+                key={room}
+                className={`room-pill ${currentRoom === room ? "room-pill-active" : ""}`}
+              >
+                <button className="room-pill-main" onClick={() => joinRoom(room)}>
+                  {room}
                 </button>
-                <button className="room-pill-delete" onClick={() => handleDeleteRoom(r)}>
+
+                <button className="room-pill-delete" onClick={() => handleDeleteRoom(room)}>
                   ✕
                 </button>
               </div>
@@ -362,15 +378,20 @@ function App() {
           </div>
         </aside>
 
-        {/* MAIN CHAT */}
+        {/* MAIN CHAT PANEL */}
         <main className="chat-panel glass">
 
           <header className="chat-header">
             <h2>{currentRoom || "No Room Selected"}</h2>
+
             <div className="chat-header-right">
-              <button className="theme-toggle" onClick={() => setTheme(theme === "light" ? "dark" : "light")}>
+              <button
+                className="theme-toggle"
+                onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+              >
                 {theme === "light" ? "🌙" : "☀️"}
               </button>
+
               <span className="user-chip">Hi, {displayName}</span>
             </div>
           </header>
@@ -385,7 +406,7 @@ function App() {
                     const isMe = msg.username === displayName;
 
                     return (
-                      <div key={msg.id} className={`message-row ${isMe ? "me" : "them"}`}>
+                      <div key={msg._id} className={`message-row ${isMe ? "me" : "them"}`}>
                         <div className="message-bubble">
                           <div className="message-meta">
                             <span className="message-user">{isMe ? "You" : msg.username}</span>
@@ -396,13 +417,13 @@ function App() {
 
                           {/* REACTIONS */}
                           <div className="reactions-row">
-                            {["👍", "❤️", "😂", "🔥"].map((r) => (
+                            {["👍", "❤️", "😂", "🔥"].map((emoji) => (
                               <button
-                                key={r}
+                                key={emoji}
                                 className="reaction-btn"
-                                onClick={() => addReaction(msg.id, r)}
+                                onClick={() => addReaction(msg._id, emoji)}
                               >
-                                {r} {msg.reactions?.[r]?.length || ""}
+                                {emoji} {msg.reactions?.[emoji]?.length || ""}
                               </button>
                             ))}
                           </div>
@@ -420,21 +441,21 @@ function App() {
               {typingUser && <p className="typing-indicator">{typingUser} is typing…</p>}
             </div>
 
-            {/* USERS */}
+            {/* USERS LIST */}
             <aside className="users-column">
               <h3>USERS</h3>
               {users.map((u, i) => (
                 <div key={i} className="user-pill">{u}</div>
               ))}
             </aside>
+
           </section>
 
-          {/* INPUT */}
-          <form className="chat-input-row" onSubmit={handleSendMessage}>
+          {/* INPUT BOX */}
+          <form className="chat-input-row" onSubmit={sendMessage}>
             <input
-              type="text"
               className="chat-input"
-              placeholder="Type here..."
+              placeholder="Type a message..."
               value={messageText}
               onChange={(e) => handleTyping(e.target.value)}
               disabled={!currentRoom}

@@ -453,3 +453,32 @@ body.dark-mode {
   background: #4285f4;
   color: white;
 }
+/* ---------- REACTION BUTTONS ---------- */
+.message-reactions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.reaction-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  color: #fff;
+  transition: 0.15s ease;
+}
+
+.reaction-btn:hover {
+  background: rgba(255,255,255,0.2);
+}
+
+.reaction-count {
+  font-size: 12px;
+  margin-left: 4px;
+  color: #ddd;
+}

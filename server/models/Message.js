@@ -1,3 +1,4 @@
+// server/models/Message.js
 const mongoose = require("mongoose");
 
 const MessageSchema = new mongoose.Schema(
@@ -6,11 +7,12 @@ const MessageSchema = new mongoose.Schema(
     text: { type: String, required: true },
     roomName: { type: String, required: true },
 
-    // NEW:
+    // ❤️ 👍 😆  → stored as: { "❤️": ["user1"], "👍": ["user2"] }
     reactions: {
-      type: Object,
-      default: {}, // { "👍": ["userA", "userB"], "❤️": [...] }
-    },
+      type: Map,
+      of: [String],
+      default: {},
+    }
   },
   { timestamps: true }
 );
