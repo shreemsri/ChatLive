@@ -24,4 +24,4 @@ build/
 
 # Submodule leftovers
 client/.git
-server/.git
+server/.git.DS_Store
