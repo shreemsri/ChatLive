@@ -33,7 +33,7 @@ function App() {
   const [rooms, setRooms] = useState([]);
   const [roomInput, setRoomInput] = useState("");
   const [messages, setMessages] = useState([]);
-  const [users, setUsers] = useState([]);
+  const [users, setUsers] = useState([]); // <-- backend sends objects
   const [messageText, setMessageText] = useState("");
 
   const [typingUser, setTypingUser] = useState("");
@@ -41,12 +41,12 @@ function App() {
 
   const [theme, setTheme] = useState(localStorage.getItem("theme") || "light");
 
-  // Password persistence
+  // ================= PASSWORD SAVE =================
   useEffect(() => {
     localStorage.setItem("roomPasswords", JSON.stringify(roomPasswords));
   }, [roomPasswords]);
 
-  // SOCKET RECONNECT
+  // ================= SOCKET RECONNECT =================
   useEffect(() => {
     const onConnect = () => {
       if (username && displayName) {
@@ -64,17 +64,18 @@ function App() {
     return () => socket.off("connect", onConnect);
   }, [username, displayName]);
 
-  // THEME
+  // ================= THEME =================
   useEffect(() => {
     document.body.classList.toggle("dark-mode", theme === "dark");
     localStorage.setItem("theme", theme);
   }, [theme]);
 
-  // SOCKET LISTENERS
+  // ================= SOCKET LISTENERS =================
   useEffect(() => {
     const onReceive = (msg) => setMessages((prev) => [...prev, msg]);
-    const onRoomUsers = (u) => setUsers(u || []);
-    const onTyping = (n) => setTypingUser(n);
+    const onRoomUsers = (u) => setUsers(u || []); // <-- u = [{displayName,email}]
+    const onTyping = (userObj) =>
+      setTypingUser(userObj?.displayName || userObj?.email);
     const onStopTyping = () => setTypingUser("");
     const onRooms = (list) => setRooms(list || []);
 
@@ -103,20 +104,19 @@ function App() {
     };
   }, []);
 
-  // Load rooms on startup
+  // ================= LOAD ROOMS =================
   useEffect(() => {
     socket.emit("get_rooms", (list) => setRooms(list || []));
   }, []);
 
-  // TIME
+  // ================= TIME FORMAT =================
   const formatTime = (raw) => {
     if (!raw) return "";
     const d = new Date(raw);
-    if (isNaN(d)) return "";
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
-  // AUTH HELPERS
+  // ================= AUTH HELPERS =================
   const loginSuccess = (email, name) => {
     setUsername(email);
     setDisplayName(name);
@@ -170,7 +170,7 @@ function App() {
     localStorage.removeItem("displayName");
   };
 
-  // JOIN ROOM
+  // ================= ROOM JOIN =================
   const askForPassword = (roomName) =>
     window.prompt(`Enter password for "${roomName}"`);
 
@@ -185,49 +185,45 @@ function App() {
     }
 
     socket.emit("join_room", { roomName, password: pwd }, (data) => {
-      if (!data.ok) {
-        alert(data.message);
-        return;
-      }
+      if (!data.ok) return alert(data.message);
+
       setCurrentRoom(roomName);
       setMessages(data.messages || []);
-      setUsers(data.users || []);
+      setUsers(data.users || []); // <-- objects
     });
   };
 
-  // DELETE ROOM
+  // ================= DELETE ROOM =================
   const handleDeleteRoom = (roomName) => {
     const pwd = window.prompt(`Enter password to delete "${roomName}"`);
     if (!pwd) return;
 
     socket.emit("delete_room", { roomName, password: pwd }, (res) => {
       if (!res.ok) return alert(res.message);
-
       if (currentRoom === roomName) {
         setCurrentRoom("");
         setMessages([]);
         setUsers([]);
       }
-
       setRooms((old) => old.filter((r) => r !== roomName));
     });
   };
 
-  // TYPING
+  // ================= TYPING =================
   const handleTyping = (value) => {
     setMessageText(value);
 
     if (!currentRoom) return;
 
-    socket.emit("typing", currentRoom);
+    socket.emit("typing", { roomName: currentRoom });
 
     clearTimeout(typingTimeoutRef.current);
     typingTimeoutRef.current = setTimeout(() => {
-      socket.emit("stop_typing", currentRoom);
+      socket.emit("stop_typing", { roomName: currentRoom });
     }, 800);
   };
 
-  // SEND MESSAGE
+  // ================= SEND MESSAGE =================
   const handleSendMessage = (e) => {
     e.preventDefault();
 
@@ -241,12 +237,12 @@ function App() {
     setMessageText("");
   };
 
-  // REACTIONS
+  // ================= REACTIONS =================
   const addReaction = (id, emoji) => {
     socket.emit("add_reaction", { messageId: id, reaction: emoji });
   };
 
-  // LOGIN SCREEN
+  // ================= LOGIN UI =================
   if (!username || !displayName) {
     return (
       <div className="login-wrapper">
@@ -356,7 +352,6 @@ function App() {
 
                         <div className="message-text">{msg.text}</div>
 
-                        {/* REACTION COUNTS */}
                         <div className="reactions-bar">
                           {msg.reactions &&
                             Object.keys(msg.reactions).map((r) => (
@@ -366,7 +361,6 @@ function App() {
                             ))}
                         </div>
 
-                        {/* REACTION PICKER TOGGLE */}
                         <button
                           className="reaction-trigger"
                           onClick={() =>
@@ -382,14 +376,15 @@ function App() {
                           😀
                         </button>
 
-                        {/* PICKER */}
                         {msg.showPicker && (
                           <ReactionPicker
                             onSelect={(emoji) => {
                               addReaction(msg._id, emoji);
                               setMessages((prev) =>
                                 prev.map((m) =>
-                                  m._id === msg._id ? { ...m, showPicker: false } : m
+                                  m._id === msg._id
+                                    ? { ...m, showPicker: false }
+                                    : m
                                 )
                               );
                             }}
@@ -410,9 +405,16 @@ function App() {
             {/* USERS */}
             <aside className="users-column">
               <h3>USERS</h3>
-              {users.map((u, i) => (
-                <div key={i} className="user-pill">{u}</div>
-              ))}
+
+              {users.length > 0 ? (
+                users.map((u, i) => (
+                  <div key={i} className="user-pill">
+                    {u.displayName || u.email || "Unknown"}
+                  </div>
+                ))
+              ) : (
+                <p className="empty-text small">No users in this room.</p>
+              )}
             </aside>
 
           </section>
