@@ -482,3 +482,30 @@ body.dark-mode {
   margin-left: 4px;
   color: #ddd;
 }
+.reactions-bar {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.reaction-count {
+  font-size: 14px;
+  background: rgba(255,255,255,0.12);
+  padding: 3px 8px;
+  border-radius: 15px;
+  user-select: none;
+}
+
+.reaction-trigger {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  margin-top: 6px;
+  font-size: 16px;
+  opacity: 0.6;
+}
+
+.reaction-trigger:hover {
+  opacity: 1;
+  transform: scale(1.15);
+}

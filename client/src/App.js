@@ -1,7 +1,8 @@
-// client/src/App.js
 import React, { useState, useEffect, useRef } from "react";
 import socket from "./socket";
 import "./App.css";
+
+import ReactionPicker from "./ReactionPicker";
 
 import { auth, googleProvider } from "./firebase";
 import {
@@ -12,19 +13,13 @@ import {
 } from "firebase/auth";
 
 function App() {
-  // ==============================================================
-  //                      AUTH STATE
-  // ==============================================================
-
+  // ================= AUTH =================
   const [username, setUsername] = useState(localStorage.getItem("username") || "");
   const [displayName, setDisplayName] = useState(localStorage.getItem("displayName") || "");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  // ==============================================================
-  //                      ROOM STATE
-  // ==============================================================
-
+  // room passwords
   const [roomPasswords, setRoomPasswords] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem("roomPasswords")) || {};
@@ -33,35 +28,25 @@ function App() {
     }
   });
 
+  // ================= CHAT =================
   const [currentRoom, setCurrentRoom] = useState("");
   const [rooms, setRooms] = useState([]);
   const [roomInput, setRoomInput] = useState("");
-
-  // ==============================================================
-  //                      CHAT STATE
-  // ==============================================================
-
   const [messages, setMessages] = useState([]);
   const [users, setUsers] = useState([]);
   const [messageText, setMessageText] = useState("");
-  const [typingUser, setTypingUser] = useState("");
 
+  const [typingUser, setTypingUser] = useState("");
   const typingTimeoutRef = useRef(null);
 
   const [theme, setTheme] = useState(localStorage.getItem("theme") || "light");
 
-  // ==============================================================
-  //                      PERSIST
-  // ==============================================================
-
+  // Password persistence
   useEffect(() => {
     localStorage.setItem("roomPasswords", JSON.stringify(roomPasswords));
   }, [roomPasswords]);
 
-  // ==============================================================
-  //                      SOCKET RE-CONNECT
-  // ==============================================================
-
+  // SOCKET RECONNECT
   useEffect(() => {
     const onConnect = () => {
       if (username && displayName) {
@@ -79,23 +64,17 @@ function App() {
     return () => socket.off("connect", onConnect);
   }, [username, displayName]);
 
-  // ==============================================================
-  //                      THEME HANDLER
-  // ==============================================================
-
+  // THEME
   useEffect(() => {
     document.body.classList.toggle("dark-mode", theme === "dark");
     localStorage.setItem("theme", theme);
   }, [theme]);
 
-  // ==============================================================
-  //                      SOCKET LISTENERS
-  // ==============================================================
-
+  // SOCKET LISTENERS
   useEffect(() => {
     const onReceive = (msg) => setMessages((prev) => [...prev, msg]);
     const onRoomUsers = (u) => setUsers(u || []);
-    const onTyping = (u) => setTypingUser(u);
+    const onTyping = (n) => setTypingUser(n);
     const onStopTyping = () => setTypingUser("");
     const onRooms = (list) => setRooms(list || []);
 
@@ -124,15 +103,12 @@ function App() {
     };
   }, []);
 
-  // Fetch rooms once
+  // Load rooms on startup
   useEffect(() => {
     socket.emit("get_rooms", (list) => setRooms(list || []));
   }, []);
 
-  // ==============================================================
-  //                      FORMATTER
-  // ==============================================================
-
+  // TIME
   const formatTime = (raw) => {
     if (!raw) return "";
     const d = new Date(raw);
@@ -140,14 +116,10 @@ function App() {
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
-  // ==============================================================
-  //                      AUTH HELPERS
-  // ==============================================================
-
+  // AUTH HELPERS
   const loginSuccess = (email, name) => {
     setUsername(email);
     setDisplayName(name);
-
     localStorage.setItem("username", email);
     localStorage.setItem("displayName", name);
 
@@ -156,85 +128,76 @@ function App() {
 
   const handleRegister = async () => {
     if (!email || !password) return alert("Enter email + password");
-
-    const res = await createUserWithEmailAndPassword(auth, email, password);
-    const emailUser = res.user.email;
-    const name = emailUser.split("@")[0];
-
-    loginSuccess(emailUser, name);
+    try {
+      const u = await createUserWithEmailAndPassword(auth, email, password);
+      const mail = u.user.email;
+      loginSuccess(mail, mail.split("@")[0]);
+    } catch (e) {
+      alert(e.message);
+    }
   };
 
   const handleLogin = async () => {
     if (!email || !password) return alert("Enter email + password");
-
-    const res = await signInWithEmailAndPassword(auth, email, password);
-    const emailUser = res.user.email;
-    const name = emailUser.split("@")[0];
-
-    loginSuccess(emailUser, name);
+    try {
+      const u = await signInWithEmailAndPassword(auth, email, password);
+      const mail = u.user.email;
+      loginSuccess(mail, mail.split("@")[0]);
+    } catch (e) {
+      alert(e.message);
+    }
   };
 
   const handleGoogleLogin = async () => {
-    const result = await signInWithPopup(auth, googleProvider);
-    const emailUser = result.user.email;
-    const name = result.user.displayName || emailUser.split("@")[0];
-
-    loginSuccess(emailUser, name);
+    try {
+      const r = await signInWithPopup(auth, googleProvider);
+      const mail = r.user.email;
+      const dName = r.user.displayName || mail.split("@")[0];
+      loginSuccess(mail, dName);
+    } catch (e) {
+      alert(e.message);
+    }
   };
 
   const handleLogout = async () => {
     await signOut(auth);
-
     setUsername("");
     setDisplayName("");
+    setCurrentRoom("");
     setMessages([]);
     setUsers([]);
-    setCurrentRoom("");
-
     localStorage.removeItem("username");
     localStorage.removeItem("displayName");
   };
 
-  // ==============================================================
-  //                      ROOM HANDLERS
-  // ==============================================================
+  // JOIN ROOM
+  const askForPassword = (roomName) =>
+    window.prompt(`Enter password for "${roomName}"`);
 
-  const askPassword = (room) => prompt(`Enter password for "${room}"`);
-
-  const joinRoom = (roomName, ask = false) => {
-    if (!roomName) return;
-
+  const joinRoom = (roomName, force = false) => {
     let pwd = roomPasswords[roomName];
 
-    if (!pwd || ask) {
-      const entered = askPassword(roomName);
+    if (!pwd || force) {
+      const entered = askForPassword(roomName);
       if (!entered) return;
       pwd = entered;
       setRoomPasswords((prev) => ({ ...prev, [roomName]: pwd }));
     }
 
-    socket.emit("join_room", { roomName, password: pwd }, (res = {}) => {
-      if (!res.ok) {
-        alert(res.message);
-
-        if (res.message.toLowerCase().includes("wrong")) {
-          setRoomPasswords((p) => {
-            const x = { ...p };
-            delete x[roomName];
-            return x;
-          });
-        }
+    socket.emit("join_room", { roomName, password: pwd }, (data) => {
+      if (!data.ok) {
+        alert(data.message);
         return;
       }
-
       setCurrentRoom(roomName);
-      setMessages(res.messages || []);
-      setUsers(res.users || []);
+      setMessages(data.messages || []);
+      setUsers(data.users || []);
     });
   };
 
+  // DELETE ROOM
   const handleDeleteRoom = (roomName) => {
-    const pwd = prompt(`Password to delete "${roomName}"`);
+    const pwd = window.prompt(`Enter password to delete "${roomName}"`);
     if (!pwd) return;
 
     socket.emit("delete_room", { roomName, password: pwd }, (res) => {
@@ -246,14 +209,11 @@ function App() {
         setUsers([]);
       }
 
-      setRooms((prev) => prev.filter((r) => r !== roomName));
+      setRooms((old) => old.filter((r) => r !== roomName));
     });
   };
 
-  // ==============================================================
-  //                      MESSAGE + TYPING
-  // ==============================================================
-
+  // TYPING
   const handleTyping = (value) => {
     setMessageText(value);
 
@@ -267,10 +227,11 @@ function App() {
     }, 800);
   };
 
-  const sendMessage = (e) => {
+  // SEND MESSAGE
+  const handleSendMessage = (e) => {
     e.preventDefault();
 
-    if (!messageText.trim() || !currentRoom) return;
+    if (!currentRoom || !messageText.trim()) return;
 
     socket.emit("send_message", {
       roomName: currentRoom,
@@ -280,37 +241,23 @@ function App() {
     setMessageText("");
   };
 
-  // ==============================================================
-  //                      REACTIONS
-  // ==============================================================
-
-  const addReaction = (id, reaction) => {
-    socket.emit("add_reaction", { messageId: id, reaction });
+  // REACTIONS
+  const addReaction = (id, emoji) => {
+    socket.emit("add_reaction", { messageId: id, reaction: emoji });
   };
 
-  // ==============================================================
-  //                      LOGIN UI
-  // ==============================================================
-
+  // LOGIN SCREEN
   if (!username || !displayName) {
     return (
       <div className="login-wrapper">
         <div className="login-card glass">
           <h1 className="login-title">ChatLive</h1>
 
-          <input
-            className="login-input"
-            placeholder="Email"
-            type="email"
-            onChange={(e) => setEmail(e.target.value)}
-          />
+          <input type="email" className="login-input" placeholder="Email"
+            value={email} onChange={(e) => setEmail(e.target.value)} />
 
-          <input
-            className="login-input"
-            placeholder="Password"
-            type="password"
-            onChange={(e) => setPassword(e.target.value)}
-          />
+          <input type="password" className="login-input" placeholder="Password"
+            value={password} onChange={(e) => setPassword(e.target.value)} />
 
           <button className="primary-btn" onClick={handleLogin}>Login</button>
           <button className="ghost-btn" onClick={handleRegister}>Register</button>
@@ -325,10 +272,7 @@ function App() {
     );
   }
 
-  // ==============================================================
-  //                      MAIN UI
-  // ==============================================================
-
+  // ================= MAIN UI =================
   return (
     <div className={`app-shell ${theme === "dark" ? "dark-theme" : ""}`}>
       <div className="app-inner">
@@ -342,12 +286,12 @@ function App() {
 
           <div className="sidebar-room-input">
             <input
+              type="text"
               className="room-input"
               placeholder="Room name..."
               value={roomInput}
               onChange={(e) => setRoomInput(e.target.value)}
             />
-
             <button
               className="primary-btn small"
               onClick={() => {
@@ -361,16 +305,15 @@ function App() {
           </div>
 
           <div className="sidebar-rooms-list">
-            {rooms.map((room) => (
+            {rooms.map((r) => (
               <div
-                key={room}
-                className={`room-pill ${currentRoom === room ? "room-pill-active" : ""}`}
+                key={r}
+                className={`room-pill ${currentRoom === r ? "room-pill-active" : ""}`}
               >
-                <button className="room-pill-main" onClick={() => joinRoom(room)}>
-                  {room}
+                <button className="room-pill-main" onClick={() => joinRoom(r)}>
+                  {r}
                 </button>
-
-                <button className="room-pill-delete" onClick={() => handleDeleteRoom(room)}>
+                <button className="room-pill-delete" onClick={() => handleDeleteRoom(r)}>
                   ✕
                 </button>
               </div>
@@ -378,20 +321,18 @@ function App() {
           </div>
         </aside>
 
-        {/* MAIN CHAT PANEL */}
+        {/* CHAT PANEL */}
         <main className="chat-panel glass">
 
           <header className="chat-header">
             <h2>{currentRoom || "No Room Selected"}</h2>
 
             <div className="chat-header-right">
-              <button
-                className="theme-toggle"
+              <button className="theme-toggle"
                 onClick={() => setTheme(theme === "light" ? "dark" : "light")}
               >
                 {theme === "light" ? "🌙" : "☀️"}
               </button>
-
               <span className="user-chip">Hi, {displayName}</span>
             </div>
           </header>
@@ -401,39 +342,64 @@ function App() {
             {/* MESSAGES */}
             <div className="messages-column">
               {currentRoom ? (
-                messages.length ? (
-                  messages.map((msg) => {
-                    const isMe = msg.username === displayName;
+                messages.map((msg) => {
+                  const isMe = msg.username === displayName;
 
-                    return (
-                      <div key={msg._id} className={`message-row ${isMe ? "me" : "them"}`}>
-                        <div className="message-bubble">
-                          <div className="message-meta">
-                            <span className="message-user">{isMe ? "You" : msg.username}</span>
-                            <span className="message-time">{formatTime(msg.time)}</span>
-                          </div>
+                  return (
+                    <div key={msg._id} className={`message-row ${isMe ? "me" : "them"}`}>
+                      <div className="message-bubble">
 
-                          <div className="message-text">{msg.text}</div>
-
-                          {/* REACTIONS */}
-                          <div className="reactions-row">
-                            {["👍", "❤️", "😂", "🔥"].map((emoji) => (
-                              <button
-                                key={emoji}
-                                className="reaction-btn"
-                                onClick={() => addReaction(msg._id, emoji)}
-                              >
-                                {emoji} {msg.reactions?.[emoji]?.length || ""}
-                              </button>
-                            ))}
-                          </div>
+                        <div className="message-meta">
+                          <span className="message-user">{isMe ? "You" : msg.username}</span>
+                          <span className="message-time">{formatTime(msg.time)}</span>
                         </div>
+
+                        <div className="message-text">{msg.text}</div>
+
+                        {/* REACTION COUNTS */}
+                        <div className="reactions-bar">
+                          {msg.reactions &&
+                            Object.keys(msg.reactions).map((r) => (
+                              <span key={r} className="reaction-count">
+                                {r} {msg.reactions[r].length}
+                              </span>
+                            ))}
+                        </div>
+
+                        {/* REACTION PICKER TOGGLE */}
+                        <button
+                          className="reaction-trigger"
+                          onClick={() =>
+                            setMessages((prev) =>
+                              prev.map((m) =>
+                                m._id === msg._id
+                                  ? { ...m, showPicker: !m.showPicker }
+                                  : m
+                              )
+                            )
+                          }
+                        >
+                          😀
+                        </button>
+
+                        {/* PICKER */}
+                        {msg.showPicker && (
+                          <ReactionPicker
+                            onSelect={(emoji) => {
+                              addReaction(msg._id, emoji);
+                              setMessages((prev) =>
+                                prev.map((m) =>
+                                  m._id === msg._id ? { ...m, showPicker: false } : m
+                                )
+                              );
+                            }}
+                          />
+                        )}
+
                       </div>
-                    );
-                  })
-                ) : (
-                  <p className="no-messages">No messages yet.</p>
-                )
+                    </div>
+                  );
+                })
               ) : (
                 <p className="no-room-selected">Join a room first.</p>
               )}
@@ -441,7 +407,7 @@ function App() {
               {typingUser && <p className="typing-indicator">{typingUser} is typing…</p>}
             </div>
 
-            {/* USERS LIST */}
+            {/* USERS */}
             <aside className="users-column">
               <h3>USERS</h3>
               {users.map((u, i) => (
@@ -451,17 +417,20 @@ function App() {
 
           </section>
 
-          {/* INPUT BOX */}
-          <form className="chat-input-row" onSubmit={sendMessage}>
+          {/* INPUT */}
+          <form className="chat-input-row" onSubmit={handleSendMessage}>
             <input
+              type="text"
               className="chat-input"
-              placeholder="Type a message..."
+              placeholder="Type here..."
               value={messageText}
               onChange={(e) => handleTyping(e.target.value)}
               disabled={!currentRoom}
             />
 
-            <button className="primary-btn pill" type="submit">Send</button>
+            <button className="primary-btn pill" type="submit">
+              Send
+            </button>
           </form>
 
         </main>
