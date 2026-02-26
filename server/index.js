@@ -1,11 +1,11 @@
-require("dotenv").config();
+require("dotenv").config({ path: __dirname + "/.env" });
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const cors = require("cors");
 const mongoose = require("mongoose");
 
-// Mongo Models
+// Models
 const Message = require("./models/Message");
 const Room = require("./models/Room");
 
@@ -42,47 +42,49 @@ const io = new Server(server, {
   },
 });
 
-// ------------------ In-memory users only ----------------
-const rooms = {}; // DB handles room + messages
+// Memory users only (DB stores the room)
+const rooms = {}; // rooms[roomName] = { users: {} }
 
 // ------------------ Health Route ------------------------
 app.get("/", (req, res) => {
-  res.send("ChatLive backend with MongoDB + DisplayName running ✅");
+  res.send("ChatLive backend with DisplayName + Reactions running ✅");
 });
 
 // ==================================================================
-//                          SOCKET EVENTS
+//                           SOCKET EVENTS
 // ==================================================================
 io.on("connection", (socket) => {
-  console.log("⚡ New client connected:", socket.id);
+  console.log("⚡ Client connected:", socket.id);
 
-  // ------------------ SET USER / DISPLAY NAME ------------------
+  // ------------------ SET USER ------------------
   socket.on("set_username", ({ email, displayName }) => {
     socket.email = email;
-    socket.displayName = displayName || email.split("@")[0];
+    socket.displayName = displayName || email?.split("@")[0] || "User";
 
-    console.log(`🧑 User Set → ${socket.displayName} (${email})`);
+    console.log(`🧑 User Set → ${socket.displayName}`);
   });
 
-  // ------------------ TYPING INDICATORS ------------------
+  // ------------------ TYPING EVENTS ------------------
   socket.on("typing", (roomName) => {
-    if (roomName)
-      io.to(roomName).emit("user_typing", socket.displayName);
+    if (!roomName) return;
+    io.to(roomName).emit("user_typing", socket.displayName);
   });
 
   socket.on("stop_typing", (roomName) => {
-    if (roomName)
-      io.to(roomName).emit("user_stop_typing");
+    if (!roomName) return;
+    io.to(roomName).emit("user_stop_typing");
   });
 
-  // ------------------ JOIN / CREATE ROOM ------------------
+  // ==================================================================
+  //                       JOIN / CREATE ROOM
+  // ==================================================================
   socket.on("join_room", async ({ roomName, password }, callback) => {
     if (!roomName || !password)
       return callback({ ok: false, message: "Room name and password required." });
 
     const username = socket.displayName;
 
-    // Check / Create room in DB
+    // Find / Create room in DB
     let room = await Room.findOne({ name: roomName });
 
     if (!room) {
@@ -91,30 +93,30 @@ io.on("connection", (socket) => {
         password,
         createdBy: username,
       });
-      console.log("🆕 Room Created:", roomName);
-    } else {
-      if (room.password !== password)
-        return callback({ ok: false, message: "Wrong password." });
+      console.log("🆕 Room created:", roomName);
+    } else if (room.password !== password) {
+      return callback({ ok: false, message: "Wrong password." });
     }
 
-    // Create room memory structure if needed
+    // Create memory room struct if needed
     if (!rooms[roomName]) rooms[roomName] = { users: {} };
 
-    // Remove user from all previous rooms
-    for (const r of Object.keys(rooms)) {
+    // Remove user from old rooms
+    Object.keys(rooms).forEach((r) => {
       if (r !== roomName && rooms[r].users[username]) {
         delete rooms[r].users[username];
         io.to(r).emit("room_users", Object.keys(rooms[r].users));
       }
-    }
+    });
 
-    // Join new room
+    // Join room
     socket.join(roomName);
     rooms[roomName].users[username] = true;
 
-    // Load message history
-    const dbMessages = await Message.find({ roomName }).sort({ createdAt: 1 });
-    const formatted = dbMessages.map((m) => ({
+    // Load messages
+    const history = await Message.find({ roomName }).sort({ createdAt: 1 });
+
+    const formatted = history.map((m) => ({
       id: m._id,
       username: m.username,
       text: m.text,
@@ -131,18 +133,22 @@ io.on("connection", (socket) => {
 
     io.to(roomName).emit("room_users", Object.keys(rooms[roomName].users));
 
-    // Update room list for all clients
-    const allRooms = await Room.find().distinct("name");
-    io.emit("rooms_updated", allRooms);
+    // Update room list
+    const list = await Room.find().distinct("name");
+    io.emit("rooms_updated", list);
   });
 
-  // ------------------ GET ROOMS LIST ------------------
+  // ==================================================================
+  //                         GET ROOMS
+  // ==================================================================
   socket.on("get_rooms", async (callback) => {
     const list = await Room.find().distinct("name");
     callback(list);
   });
 
-  // ------------------ SEND MESSAGE ------------------
+  // ==================================================================
+  //                        SEND MESSAGE
+  // ==================================================================
   socket.on("send_message", async ({ roomName, text }) => {
     if (!roomName || !text?.trim()) return;
 
@@ -162,7 +168,7 @@ io.on("connection", (socket) => {
   });
 
   // ==================================================================
-  //                         MESSAGE REACTIONS (NEW)
+  //                        REACTIONS
   // ==================================================================
   socket.on("add_reaction", async ({ messageId, reaction }) => {
     try {
@@ -175,9 +181,7 @@ io.on("connection", (socket) => {
 
       // Toggle reaction
       if (msg.reactions[reaction].includes(user)) {
-        msg.reactions[reaction] = msg.reactions[reaction].filter(
-          (u) => u !== user
-        );
+        msg.reactions[reaction] = msg.reactions[reaction].filter((u) => u !== user);
       } else {
         msg.reactions[reaction].push(user);
       }
@@ -193,12 +197,13 @@ io.on("connection", (socket) => {
     }
   });
 
-  // ------------------ DELETE ROOM ------------------
+  // ==================================================================
+  //                        DELETE ROOM
+  // ==================================================================
   socket.on("delete_room", async ({ roomName, password }, callback) => {
     const room = await Room.findOne({ name: roomName });
 
-    if (!room)
-      return callback({ ok: false, message: "Room does not exist." });
+    if (!room) return callback({ ok: false, message: "Room does not exist." });
 
     if (room.password !== password)
       return callback({ ok: false, message: "Wrong password." });
@@ -208,29 +213,30 @@ io.on("connection", (socket) => {
 
     delete rooms[roomName];
 
-    const list = await Room.find().distinct("name");
-    io.emit("rooms_updated", list);
+    const updated = await Room.find().distinct("name");
+    io.emit("rooms_updated", updated);
 
     callback({ ok: true });
   });
 
-  // ------------------ DISCONNECT ------------------
+  // ==================================================================
+  //                        DISCONNECT
+  // ==================================================================
   socket.on("disconnect", () => {
     const username = socket.displayName;
-    console.log(`❌ Disconnected → ${username}`);
+    console.log("❌ User disconnected:", username);
 
-    for (const r of Object.keys(rooms)) {
-      if (rooms[r].users[username]) {
-        delete rooms[r].users[username];
-        io.to(r).emit("room_users", Object.keys(rooms[r].users));
+    Object.keys(rooms).forEach((roomName) => {
+      if (rooms[roomName].users[username]) {
+        delete rooms[roomName].users[username];
+        io.to(roomName).emit("room_users", Object.keys(rooms[roomName].users));
       }
-    }
+    });
   });
 });
 
 // ------------------ START SERVER ------------------------
 const PORT = process.env.PORT || 5001;
-
 server.listen(PORT, () =>
   console.log(`🚀 Server running on port ${PORT}`)
 );

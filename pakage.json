@@ -1,0 +1,10 @@
+{
+  "name": "chatlive-root",
+  "private": true,
+  "scripts": {
+    "start": "node server/index.js",
+    "server": "cd server && node index.js",
+    "client": "cd client && npm start",
+    "install": "cd server && npm install && cd ../client && npm install"
+  }
+}

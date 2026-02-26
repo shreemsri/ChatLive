@@ -13,13 +13,13 @@ import {
 } from "firebase/auth";
 
 function App() {
-  // ================= AUTH =================
+  // AUTH
   const [username, setUsername] = useState(localStorage.getItem("username") || "");
   const [displayName, setDisplayName] = useState(localStorage.getItem("displayName") || "");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  // ================= ROOM PASSWORDS =================
+  // ROOM PASSWORDS
   const [roomPasswords, setRoomPasswords] = useState(() => {
     try {
       return JSON.parse(localStorage.getItem("roomPasswords")) || {};
@@ -28,7 +28,7 @@ function App() {
     }
   });
 
-  // ================= CHAT =================
+  // CHAT STATE
   const [currentRoom, setCurrentRoom] = useState("");
   const [rooms, setRooms] = useState([]);
   const [roomInput, setRoomInput] = useState("");
@@ -44,12 +44,12 @@ function App() {
   // Which message has reaction picker open
   const [openReactionPicker, setOpenReactionPicker] = useState(null);
 
-  // ================= PERSIST PASSWORDS =================
+  // SAVE PASSWORDS
   useEffect(() => {
     localStorage.setItem("roomPasswords", JSON.stringify(roomPasswords));
   }, [roomPasswords]);
 
-  // ================= SOCKET RECONNECT =================
+  // SOCKET RECONNECT
   useEffect(() => {
     const onConnect = () => {
       if (username && displayName) {
@@ -67,13 +67,13 @@ function App() {
     return () => socket.off("connect", onConnect);
   }, [username, displayName]);
 
-  // ================= THEME =================
+  // THEME
   useEffect(() => {
     document.body.classList.toggle("dark-mode", theme === "dark");
     localStorage.setItem("theme", theme);
   }, [theme]);
 
-  // ================= SOCKET LISTENERS =================
+  // SOCKET LISTENERS
   useEffect(() => {
     const onReceive = (msg) => {
       setMessages((prev) => [...prev, msg]);
@@ -90,7 +90,7 @@ function App() {
     const onReactionUpdate = ({ messageId, reactions }) => {
       setMessages((prev) =>
         prev.map((m) =>
-          m._id === messageId ? { ...m, reactions } : m
+          m.id === messageId ? { ...m, reactions } : m
         )
       );
     };
@@ -117,7 +117,7 @@ function App() {
     socket.emit("get_rooms", (list) => setRooms(list || []));
   }, []);
 
-  // ================= UTILS =================
+  // Time formatting
   const formatTime = (raw) => {
     if (!raw) return "";
     const d = new Date(raw);
@@ -125,7 +125,7 @@ function App() {
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
-  // ================= AUTH HELPERS =================
+  // AUTH HELPERS
   const loginSuccess = (email, dName) => {
     setUsername(email);
     setDisplayName(dName);
@@ -137,7 +137,6 @@ function App() {
 
   const handleRegister = async () => {
     if (!email || !password) return alert("Enter email + password");
-
     try {
       const u = await createUserWithEmailAndPassword(auth, email, password);
       const mail = u.user.email;
@@ -149,7 +148,6 @@ function App() {
 
   const handleLogin = async () => {
     if (!email || !password) return alert("Enter email + password");
-
     try {
       const u = await signInWithEmailAndPassword(auth, email, password);
       const mail = u.user.email;
@@ -183,7 +181,8 @@ function App() {
     localStorage.removeItem("displayName");
   };
 
-  // ================= ROOMS =================
+
+  // ROOMS
   const askForPassword = (roomName) =>
     window.prompt(`Enter password for "${roomName}"`);
 
@@ -228,21 +227,23 @@ function App() {
     });
   };
 
-  // ================= TYPING =================
+
+  // TYPING  (FIXED)
   const handleTyping = (value) => {
     setMessageText(value);
 
     if (!currentRoom) return;
 
-    socket.emit("typing", displayName);
+    socket.emit("typing", currentRoom);
 
     clearTimeout(typingTimeoutRef.current);
     typingTimeoutRef.current = setTimeout(() => {
-      socket.emit("stop_typing");
+      socket.emit("stop_typing", currentRoom);
     }, 700);
   };
 
-  // ================= SEND MESSAGE =================
+
+  // SEND MESSAGE
   const handleSendMessage = (e) => {
     e.preventDefault();
     if (!messageText.trim() || !currentRoom) return;
@@ -256,12 +257,14 @@ function App() {
     setOpenReactionPicker(null);
   };
 
-  // ================= REACTIONS =================
+
+  // REACTIONS (FIXED)
   const addReaction = (id, emoji) => {
     socket.emit("add_reaction", { messageId: id, reaction: emoji });
   };
 
-  // ================= LOGIN SCREEN =================
+
+  // LOGIN SCREEN
   if (!username || !displayName) {
     return (
       <div className="login-wrapper">
@@ -297,11 +300,12 @@ function App() {
     );
   }
 
-  // ================= MAIN UI =================
+
+  // MAIN UI
   return (
     <div className={`app-shell ${theme === "dark" ? "dark-theme" : ""}`}>
       <div className="app-inner">
-        
+
         {/* SIDEBAR */}
         <aside className="sidebar glass">
           <div className="sidebar-header">
@@ -347,6 +351,7 @@ function App() {
           </div>
         </aside>
 
+
         {/* CHAT PANEL */}
         <main className="chat-panel glass">
 
@@ -364,6 +369,7 @@ function App() {
             </div>
           </header>
 
+
           {/* CHAT CONTENT */}
           <section className="chat-content">
 
@@ -374,7 +380,7 @@ function App() {
                   const isMe = msg.username === displayName;
 
                   return (
-                    <div key={msg._id} className={`message-row ${isMe ? "me" : "them"}`}>
+                    <div key={msg.id} className={`message-row ${isMe ? "me" : "them"}`}>
                       <div className="message-bubble">
 
                         <div className="message-meta">
@@ -401,17 +407,17 @@ function App() {
                           className="reaction-trigger"
                           onClick={() =>
                             setOpenReactionPicker(
-                              openReactionPicker === msg._id ? null : msg._id
+                              openReactionPicker === msg.id ? null : msg.id
                             )
                           }
                         >
                           😀
                         </button>
 
-                        {openReactionPicker === msg._id && (
+                        {openReactionPicker === msg.id && (
                           <ReactionPicker
                             onSelect={(emoji) => {
-                              addReaction(msg._id, emoji);
+                              addReaction(msg.id, emoji);
                               setOpenReactionPicker(null);
                             }}
                           />
@@ -431,7 +437,7 @@ function App() {
 
             </div>
 
-            {/* USERS */}
+            {/* USERS COLUMN */}
             <aside className="users-column">
               <h3>USERS</h3>
               {users.map((u, i) => (
@@ -441,7 +447,8 @@ function App() {
 
           </section>
 
-          {/* INPUT BAR */}
+
+          {/* MESSAGE INPUT BAR */}
           <form className="chat-input-row" onSubmit={handleSendMessage}>
             <input
               type="text"
